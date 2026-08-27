@@ -16,6 +16,7 @@ from datetime import date, datetime
 from model.news.news_strategy import NewsStrategy
 from model.orchestrator.llm_orchestrator import LLMOrchestrator
 from model.schemas.agent_state import AutomationConfig, AutomationState, AutomationStatus, Decision
+from model.schemas.trade_signal import Action, OrderRequest, OrderType, TimeInForce
 from model.strategies.registry import get_strategy
 
 from app.services.alpaca_service import AlpacaService
