@@ -26,7 +26,6 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     llm_api_key: str | None = None
     llm_model: str | None = None
-    news_api_key: str | None = None
 
     # App
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
