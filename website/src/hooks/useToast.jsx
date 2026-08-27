@@ -13,9 +13,15 @@ export function ToastProvider({ children }) {
 
   const push = useCallback(
     (message, variant = "info") => {
-      const id = ++idCounter;
-      setToasts((prev) => [...prev, { id, message, variant }]);
-      setTimeout(() => dismiss(id), 4500);
+      setToasts((prev) => {
+        // Prevent duplicate messages
+        if (prev.some((t) => t.message === message)) {
+          return prev;
+        }
+        const id = ++idCounter;
+        setTimeout(() => dismiss(id), 4000);
+        return [...prev.slice(-2), { id, message, variant }];
+      });
     },
     [dismiss]
   );

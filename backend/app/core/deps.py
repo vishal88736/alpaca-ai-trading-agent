@@ -12,9 +12,10 @@ import uuid
 
 from fastapi import Cookie, HTTPException, Response
 
+from app.core.config import settings
 from app.services.alpaca_service import AlpacaService
 from app.services.automation_engine import AutomationEngine
-from app.services.session_store import session_store
+from app.services.session_store import AlpacaSession, session_store
 
 SESSION_COOKIE = "session_id"
 
@@ -30,16 +31,30 @@ def get_or_create_session_id(response: Response, session_id: str | None = Cookie
 
 
 def get_alpaca_service(session_id: str | None = Cookie(default=None)) -> AlpacaService:
-    if session_id is None or not session_store.is_connected(session_id):
-        raise HTTPException(status_code=401, detail="Not connected to Alpaca. Call /api/alpaca/connect first.")
+    effective_id = session_id or "default"
 
-    if session_id in _alpaca_services:
-        return _alpaca_services[session_id]
+    # Check if session exists in memory
+    if session_store.is_connected(effective_id):
+        if effective_id in _alpaca_services:
+            return _alpaca_services[effective_id]
+        session = session_store.get(effective_id)
+        service = AlpacaService(session.api_key, session.secret_key, paper=session.paper)
+        _alpaca_services[effective_id] = service
+        return service
 
-    session = session_store.get(session_id)
-    service = AlpacaService(session.api_key, session.secret_key, paper=session.paper)
-    _alpaca_services[session_id] = service
-    return service
+    # Check if environment variables provide valid Alpaca credentials
+    if settings.alpaca_api_key and settings.alpaca_secret_key:
+        env_session = AlpacaSession(
+            api_key=settings.alpaca_api_key,
+            secret_key=settings.alpaca_secret_key,
+            paper=settings.alpaca_paper,
+        )
+        session_store.set(effective_id, env_session)
+        service = AlpacaService(env_session.api_key, env_session.secret_key, paper=env_session.paper)
+        _alpaca_services[effective_id] = service
+        return service
+
+    raise HTTPException(status_code=401, detail="Not connected to Alpaca. Call /api/alpaca/connect first.")
 
 
 def get_optional_alpaca_service(session_id: str | None = Cookie(default=None)) -> AlpacaService | None:

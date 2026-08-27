@@ -136,6 +136,33 @@ export function Dashboard() {
         ) : null}
       </div>
 
+      {accountError && (
+        <div
+          className="card"
+          style={{
+            padding: "16px 20px",
+            marginBottom: 20,
+            background: "rgba(244, 63, 94, 0.1)",
+            border: "1px solid rgba(244, 63, 94, 0.3)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, color: "var(--sell-strong)", fontSize: 14 }}>
+              Alpaca Paper Session Expired or Disconnected
+            </div>
+            <div style={{ color: "var(--text-secondary)", fontSize: 12.5, marginTop: 2 }}>
+              The server was restarted or your session expired. Connect your paper credentials to resume automated execution and view live portfolio positions.
+            </div>
+          </div>
+          <Link to="/connect" className="btn btn--primary btn--sm" style={{ whiteSpace: "nowrap" }}>
+            Connect Paper Account →
+          </Link>
+        </div>
+      )}
+
       <div style={{ marginBottom: 20 }}>
         <AccountSummary account={account} loading={loading} error={accountError} />
       </div>
