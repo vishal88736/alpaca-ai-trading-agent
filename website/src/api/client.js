@@ -43,6 +43,7 @@ export const api = {
 
   // Market
   getAssets: (search) => request(`/assets${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+  getLiveTickers: () => request("/market/live-tickers"),
   getMarketData: (symbol, timeframe = "15m") =>
     request(`/market/${encodeURIComponent(symbol)}?timeframe=${timeframe}`),
 

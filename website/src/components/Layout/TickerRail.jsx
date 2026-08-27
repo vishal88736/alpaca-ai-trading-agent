@@ -1,18 +1,39 @@
-/**
- * TickerRail — Live streaming financial ticker readout.
- */
-const DEFAULT_STREAM = [
-  { symbol: "BTC/USD", price: 64250.0, changePct: 2.34 },
-  { symbol: "ETH/USD", price: 3480.5, changePct: 1.82 },
-  { symbol: "SOL/USD", price: 148.2, changePct: 4.15 },
-  { symbol: "DOGE/USD", price: 0.124, changePct: -0.85 },
-  { symbol: "AVAX/USD", price: 28.6, changePct: 3.20 },
-  { symbol: "LINK/USD", price: 14.5, changePct: 1.10 },
-];
+import { useEffect, useState } from "react";
+import { api } from "../../api/client";
 
+/**
+ * TickerRail — Live streaming financial ticker readout with real-time rates.
+ */
 export function TickerRail({ items = [] }) {
-  const displayItems = items.length > 0 ? items : DEFAULT_STREAM;
-  const loop = [...displayItems, ...displayItems];
+  const [liveMarketItems, setLiveMarketItems] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchTickers() {
+      try {
+        const data = await api.getLiveTickers();
+        if (!cancelled && Array.isArray(data) && data.length > 0) {
+          setLiveMarketItems(data);
+        }
+      } catch (err) {
+        // Keep previous state if temporary network blip
+      }
+    }
+
+    fetchTickers();
+    const interval = setInterval(fetchTickers, 6000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Merge open positions with live market stream
+  const activeItems = items.length > 0 ? items : liveMarketItems;
+  const displayItems = activeItems.length > 0 ? activeItems : liveMarketItems;
+  const loop = displayItems.length > 0 ? [...displayItems, ...displayItems] : [];
 
   return (
     <div
@@ -49,9 +70,9 @@ export function TickerRail({ items = [] }) {
         className="ticker-track"
         style={{
           display: "flex",
-          gap: 20,
+          gap: 16,
           animation: "ticker-scroll 35s linear infinite",
-          paddingLeft: 20,
+          paddingLeft: 16,
         }}
       >
         {loop.map((item, i) => (
@@ -104,4 +125,5 @@ export function TickerRail({ items = [] }) {
     </div>
   );
 }
+
 

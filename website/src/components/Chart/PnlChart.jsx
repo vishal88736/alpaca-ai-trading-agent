@@ -32,30 +32,42 @@ export function PnlChart({ series }) {
     );
   }
 
+  const chartData =
+    series.length === 1
+      ? [{ label: "Initial", value: series[0].value }, { label: series[0].label, value: series[0].value }]
+      : series;
+
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <AreaChart data={series} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+      <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
         <defs>
           <linearGradient id="pnlFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.35} />
-            <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
+            <stop offset="0%" stopColor="#6366f1" stopOpacity={0.4} />
+            <stop offset="100%" stopColor="#6366f1" stopOpacity={0.0} />
           </linearGradient>
         </defs>
         <XAxis
           dataKey="label"
-          tick={{ fill: "#6b7280", fontSize: 11, fontFamily: "IBM Plex Mono, monospace" }}
-          axisLine={{ stroke: "#242933" }}
+          tick={{ fill: "#64748b", fontSize: 10.5, fontFamily: "JetBrains Mono, monospace" }}
+          axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
           tickLine={false}
         />
         <YAxis
-          tick={{ fill: "#6b7280", fontSize: 11, fontFamily: "IBM Plex Mono, monospace" }}
+          tick={{ fill: "#64748b", fontSize: 10.5, fontFamily: "JetBrains Mono, monospace" }}
           axisLine={false}
           tickLine={false}
           tickFormatter={fmtUsd}
-          width={70}
+          width={65}
+          domain={["auto", "auto"]}
         />
         <Tooltip content={<ChartTooltip />} />
-        <Area type="monotone" dataKey="value" stroke="var(--accent)" strokeWidth={2} fill="url(#pnlFill)" />
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke="#818cf8"
+          strokeWidth={2}
+          fill="url(#pnlFill)"
+        />
       </AreaChart>
     </ResponsiveContainer>
   );

@@ -141,7 +141,7 @@ export function Dashboard() {
       </div>
 
       <div style={{ marginBottom: 20 }}>
-        <MarketChart symbol={selectedSymbol || assets[0]} />
+        <MarketChart symbol={selectedSymbol || (assets && assets.length > 0 ? assets[0] : (positions && positions.length > 0 ? positions[0].symbol : "BTC/USD"))} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 20, marginBottom: 20, alignItems: "start" }}>

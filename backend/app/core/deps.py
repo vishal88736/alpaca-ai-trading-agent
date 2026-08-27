@@ -42,6 +42,15 @@ def get_alpaca_service(session_id: str | None = Cookie(default=None)) -> AlpacaS
     return service
 
 
+def get_optional_alpaca_service(session_id: str | None = Cookie(default=None)) -> AlpacaService | None:
+    if session_id is None or not session_store.is_connected(session_id):
+        return None
+    try:
+        return get_alpaca_service(session_id)
+    except Exception:
+        return None
+
+
 def get_automation_engine(session_id: str | None = Cookie(default=None)) -> AutomationEngine:
     alpaca = get_alpaca_service(session_id)
     if session_id not in _automation_engines:
