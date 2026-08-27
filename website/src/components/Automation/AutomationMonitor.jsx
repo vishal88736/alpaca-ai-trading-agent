@@ -30,11 +30,21 @@ function Row({ label, value, accent }) {
   );
 }
 
+const STRATEGY_DISPLAY_NAMES = {
+  options_alpha_income: "Options Alpha",
+  momentum: "Momentum",
+  mean_reversion: "Mean Reversion",
+  market_making: "Market Making",
+  funding_arbitrage: "Funding Arb",
+  cross_exchange_arbitrage: "Cross Arb",
+};
+
 export function AutomationMonitor({ status, onPause, onResume, onStop, onEmergencyStop }) {
   if (!status) return null;
   const running = status.state === "RUNNING";
   const paused = status.state === "PAUSED";
   const idle = status.state === "IDLE" || status.state === "STOPPED";
+  const displayStrategy = STRATEGY_DISPLAY_NAMES[status.strategy] || status.strategy || "—";
 
   return (
     <div className="card" style={{ padding: "22px 24px" }}>
@@ -64,8 +74,8 @@ export function AutomationMonitor({ status, onPause, onResume, onStop, onEmergen
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 12, marginBottom: 18 }}>
-        <MetricBox label="Strategy" value={status.strategy || "—"} mono={false} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, marginBottom: 18 }}>
+        <MetricBox label="Strategy" value={displayStrategy} mono={false} />
         <MetricBox label="Signals" value={status.signals_count} />
         <MetricBox label="Trades" value={status.trades_count} />
         <MetricBox label="Winning" value={status.winning_trades} accent="var(--buy-strong)" />
@@ -97,12 +107,24 @@ function MetricBox({ label, value, accent, mono = true }) {
         background: "rgba(255, 255, 255, 0.02)",
         borderRadius: "var(--radius-sm)",
         border: "1px solid rgba(255, 255, 255, 0.04)",
+        overflow: "hidden",
       }}
     >
       <div className="eyebrow" style={{ fontSize: 9.5, marginBottom: 6 }}>
         {label}
       </div>
-      <div className={mono ? "mono" : ""} style={{ fontSize: 16, fontWeight: 700, color: accent || "var(--text-primary)" }}>
+      <div
+        className={mono ? "mono" : ""}
+        style={{
+          fontSize: 14.5,
+          fontWeight: 700,
+          color: accent || "var(--text-primary)",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+        title={String(value)}
+      >
         {value}
       </div>
     </div>
