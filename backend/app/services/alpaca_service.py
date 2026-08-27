@@ -1,0 +1,210 @@
+"""
+AlpacaService — the ONLY place in this codebase that talks to Alpaca.
+
+Uses the current `alpaca-py` SDK (never the deprecated `alpaca-trade-api`).
+Strategy code, the orchestrator, and the risk engine never import this
+module directly with live credentials — the automation engine is the sole
+caller, and only after a `RiskDecision.approved is True`.
+
+All methods are paper-trading safe: `paper` is controlled by the session
+the caller connects with (see app/services/session_store.py), defaulting to
+True everywhere in this scaffold.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from alpaca.data.historical import CryptoHistoricalDataClient, StockHistoricalDataClient
+from alpaca.data.requests import CryptoBarsRequest, StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import OrderSide, TimeInForce as AlpacaTimeInForce
+from alpaca.trading.requests import GetAssetsRequest, MarketOrderRequest
+
+from model.schemas.market_data import AssetInfo, Bar, MarketData
+from model.schemas.trade_signal import Action, OrderRequest
+
+
+TIMEFRAME_MAP = {
+    "1m": TimeFrame.Minute,
+    "5m": TimeFrame(5, TimeFrame.Unit.Minute) if hasattr(TimeFrame, "Unit") else TimeFrame.Minute,
+    "15m": TimeFrame(15, TimeFrame.Unit.Minute) if hasattr(TimeFrame, "Unit") else TimeFrame.Minute,
+    "1h": TimeFrame.Hour,
+    "1D": TimeFrame.Day,
+}
+
+
+class AlpacaCredentialsError(Exception):
+    """Raised when Alpaca rejects the supplied API key/secret."""
+
+
+class AlpacaService:
+    """
+    Thin, typed wrapper around alpaca-py's TradingClient + data clients.
+
+    Instantiate one per authenticated session — do not share a single
+    instance across users/sessions.
+    """
+
+    def __init__(self, api_key: str, secret_key: str, paper: bool = True) -> None:
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.paper = paper
+        self.trading_client = TradingClient(api_key, secret_key, paper=paper)
+        self.stock_data_client = StockHistoricalDataClient(api_key, secret_key)
+        self.crypto_data_client = CryptoHistoricalDataClient(api_key, secret_key)
+
+    # ------------------------------------------------------------------ #
+    # Connection / account
+    # ------------------------------------------------------------------ #
+
+    def validate_credentials(self) -> bool:
+        """Raises AlpacaCredentialsError if the credentials are invalid."""
+        try:
+            self.trading_client.get_account()
+            return True
+        except Exception as exc:  # noqa: BLE001 - surface as a typed error
+            raise AlpacaCredentialsError(str(exc)) from exc
+
+    def get_account(self) -> dict:
+        account = self.trading_client.get_account()
+        return {
+            "account_id": account.id,
+            "status": account.status,
+            "portfolio_value": float(account.portfolio_value),
+            "cash": float(account.cash),
+            "buying_power": float(account.buying_power),
+            "equity": float(account.equity),
+            "long_market_value": float(account.long_market_value),
+            "short_market_value": float(account.short_market_value),
+            "todays_pl": float(account.equity) - float(account.last_equity),
+            "total_pl": float(account.equity) - float(account.cash) if account.cash else None,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Positions / orders
+    # ------------------------------------------------------------------ #
+
+    def get_positions(self) -> list[dict]:
+        positions = self.trading_client.get_all_positions()
+        result = []
+        for p in positions:
+            unrealized_pl = float(p.unrealized_pl) if p.unrealized_pl is not None else 0.0
+            cost_basis = float(p.cost_basis) if p.cost_basis else 0.0
+            result.append(
+                {
+                    "symbol": p.symbol,
+                    "quantity": float(p.qty),
+                    "avg_entry_price": float(p.avg_entry_price),
+                    "current_price": float(p.current_price) if p.current_price else None,
+                    "market_value": float(p.market_value) if p.market_value else None,
+                    "unrealized_pl": unrealized_pl,
+                    "unrealized_pl_pct": (unrealized_pl / cost_basis * 100) if cost_basis else 0.0,
+                    "side": p.side,
+                }
+            )
+        return result
+
+    def get_orders(self, status: str = "all", limit: int = 50) -> list[dict]:
+        orders = self.trading_client.get_orders()
+        return [
+            {
+                "id": o.id,
+                "symbol": o.symbol,
+                "side": o.side,
+                "qty": float(o.qty) if o.qty else None,
+                "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
+                "status": o.status,
+                "submitted_at": o.submitted_at.isoformat() if o.submitted_at else None,
+                "order_type": o.order_type,
+            }
+            for o in orders[:limit]
+        ]
+
+    # ------------------------------------------------------------------ #
+    # Assets / market data
+    # ------------------------------------------------------------------ #
+
+    def get_assets(self, tradable_only: bool = True) -> list[AssetInfo]:
+        request = GetAssetsRequest()
+        assets = self.trading_client.get_all_assets(request)
+        results = []
+        for a in assets:
+            if tradable_only and not a.tradable:
+                continue
+            results.append(
+                AssetInfo(
+                    symbol=a.symbol,
+                    name=a.name or a.symbol,
+                    asset_class="crypto" if str(a.asset_class) == "AssetClass.CRYPTO" else "us_equity",
+                    exchange=str(a.exchange),
+                    tradable=a.tradable,
+                    fractionable=getattr(a, "fractionable", False),
+                )
+            )
+        return results
+
+    def get_market_data(self, symbol: str, timeframe: str = "15m", limit: int = 200) -> Optional[MarketData]:
+        """Fetch recent bars for a symbol. Returns None (not fake data) if unavailable."""
+        tf = TIMEFRAME_MAP.get(timeframe, TimeFrame.Minute)
+        is_crypto = "/" in symbol
+
+        try:
+            if is_crypto:
+                request = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
+                bars_resp = self.crypto_data_client.get_crypto_bars(request)
+            else:
+                request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
+                bars_resp = self.stock_data_client.get_stock_bars(request)
+        except Exception:
+            return None
+
+        raw_bars = bars_resp.data.get(symbol, []) if hasattr(bars_resp, "data") else []
+        if not raw_bars:
+            return None
+
+        bars = [
+            Bar(
+                timestamp=b.timestamp,
+                open=float(b.open),
+                high=float(b.high),
+                low=float(b.low),
+                close=float(b.close),
+                volume=float(b.volume),
+            )
+            for b in raw_bars
+        ]
+
+        return MarketData(
+            symbol=symbol,
+            asset_class="crypto" if is_crypto else "us_equity",
+            timeframe=timeframe,
+            bars=bars,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Execution — only ever called with an approved OrderRequest
+    # ------------------------------------------------------------------ #
+
+    def submit_order(self, order: OrderRequest) -> dict:
+        side = OrderSide.BUY if order.action == Action.BUY else OrderSide.SELL
+        market_order_data = MarketOrderRequest(
+            symbol=order.symbol,
+            qty=order.quantity,
+            side=side,
+            time_in_force=AlpacaTimeInForce.DAY,
+            client_order_id=order.client_order_id,
+        )
+        result = self.trading_client.submit_order(order_data=market_order_data)
+        return {
+            "id": result.id,
+            "symbol": result.symbol,
+            "side": result.side,
+            "qty": float(result.qty) if result.qty else None,
+            "status": result.status,
+            "submitted_at": result.submitted_at.isoformat() if result.submitted_at else None,
+        }
+
+    def cancel_order(self, order_id: str) -> None:
+        self.trading_client.cancel_order_by_id(order_id)
