@@ -104,7 +104,7 @@ class AutomationEngine:
     # Core loop
     # ------------------------------------------------------------------ #
 
-    async def _run_loop(self, poll_seconds: int = 30) -> None:
+    async def _run_loop(self, poll_seconds: int = 15) -> None:
         strategy = get_strategy(self.config.strategy)
         strategy.initialize(self.config.risk.model_dump())
 

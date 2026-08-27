@@ -163,10 +163,11 @@ class AlpacaService:
         return results
 
     def get_market_data(self, symbol: str, timeframe: str = "15m", limit: int = 200) -> Optional[MarketData]:
-        """Fetch recent bars for a symbol. Returns None (not fake data) if unavailable."""
+        """Fetch recent bars for a symbol. Returns MarketData with fallback if Alpaca is unavailable."""
         tf = TIMEFRAME_MAP.get(timeframe, TimeFrame.Minute)
         is_crypto = "/" in symbol
 
+        raw_bars = []
         try:
             if is_crypto:
                 request = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
@@ -174,10 +175,46 @@ class AlpacaService:
             else:
                 request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
                 bars_resp = self.stock_data_client.get_stock_bars(request)
+            raw_bars = bars_resp.data.get(symbol, []) if hasattr(bars_resp, "data") else []
         except Exception:
-            return None
+            raw_bars = []
 
-        raw_bars = bars_resp.data.get(symbol, []) if hasattr(bars_resp, "data") else []
+        # Fallback to public live bars for crypto if Alpaca data client is empty
+        if not raw_bars and is_crypto:
+            try:
+                import httpx
+                clean_sym = symbol.replace("/", "").replace("-", "").upper()
+                if not clean_sym.endswith("USDT") and not clean_sym.endswith("USD"):
+                    clean_sym += "USDT"
+                elif clean_sym.endswith("USD"):
+                    clean_sym = clean_sym[:-3] + "USDT"
+
+                interval_map = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "1D": "1d"}
+                interval = interval_map.get(timeframe, "15m")
+                with httpx.Client(timeout=4.0) as client:
+                    resp = client.get(f"https://api.binance.com/api/v3/klines?symbol={clean_sym}&interval={interval}&limit=100")
+                    if resp.status_code == 200:
+                        klines = resp.json()
+                        bars = [
+                            Bar(
+                                timestamp=datetime.fromtimestamp(k[0] / 1000.0, timezone.utc),
+                                open=float(k[1]),
+                                high=float(k[2]),
+                                low=float(k[3]),
+                                close=float(k[4]),
+                                volume=float(k[5]),
+                            )
+                            for k in klines
+                        ]
+                        return MarketData(
+                            symbol=symbol,
+                            asset_class=AssetClass.CRYPTO,
+                            timeframe=Timeframe(timeframe) if timeframe in Timeframe.__members__.values() else Timeframe.MIN_15,
+                            bars=bars,
+                        )
+            except Exception:
+                pass
+
         if not raw_bars:
             return None
 
@@ -206,20 +243,24 @@ class AlpacaService:
 
     def submit_order(self, order: OrderRequest) -> dict:
         side = OrderSide.BUY if order.action == Action.BUY else OrderSide.SELL
+        is_crypto = "/" in order.symbol
+        # Alpaca requires GTC for crypto, DAY for equities
+        time_in_force = AlpacaTimeInForce.GTC if is_crypto else AlpacaTimeInForce.DAY
+
         market_order_data = MarketOrderRequest(
             symbol=order.symbol,
-            qty=order.quantity,
+            qty=round(order.quantity, 6) if is_crypto else round(order.quantity),
             side=side,
-            time_in_force=AlpacaTimeInForce.DAY,
+            time_in_force=time_in_force,
             client_order_id=order.client_order_id,
         )
         result = self.trading_client.submit_order(order_data=market_order_data)
         return {
-            "id": result.id,
+            "id": str(result.id),
             "symbol": result.symbol,
-            "side": result.side,
+            "side": str(result.side),
             "qty": float(result.qty) if result.qty else None,
-            "status": result.status,
+            "status": str(result.status),
             "submitted_at": result.submitted_at.isoformat() if result.submitted_at else None,
         }
 
