@@ -4,6 +4,7 @@ import { SkeletonBlock } from "../Common/SkeletonLoader";
 import { ErrorState } from "../Common/EmptyState";
 
 const STRATEGY_ICONS = {
+  options_alpha_income: "🎯",
   momentum: "📈",
   mean_reversion: "📉",
   market_making: "⚡",

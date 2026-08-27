@@ -126,23 +126,40 @@ class AlpacaService:
     # Assets / market data
     # ------------------------------------------------------------------ #
 
-    def get_assets(self, tradable_only: bool = True) -> list[AssetInfo]:
-        request = GetAssetsRequest()
+    def get_assets(self, tradable_only: bool = True, asset_class: Optional[str] = None) -> list[AssetInfo]:
+        request_params = {}
+        if asset_class:
+            if asset_class.lower() == "crypto":
+                request_params["asset_class"] = AlpacaAssetClass.CRYPTO
+            elif asset_class.lower() in ("us_equity", "equity"):
+                request_params["asset_class"] = AlpacaAssetClass.US_EQUITY
+
+        request = GetAssetsRequest(**request_params) if request_params else GetAssetsRequest()
         assets = self.trading_client.get_all_assets(request)
+        
         results = []
+        popular_first = {"BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD", "AVAX/USD", "LINK/USD", "AAPL", "NVDA", "TSLA", "SPY", "QQQ", "MSFT", "AMZN", "GOOGL", "META"}
+        
         for a in assets:
             if tradable_only and not a.tradable:
                 continue
+            is_crypto = "crypto" in str(a.asset_class).lower() or "/" in str(a.symbol)
+            is_options = "option" in str(a.asset_class).lower()
+            cls_name = "crypto" if is_crypto else ("options" if is_options else "us_equity")
+            
             results.append(
                 AssetInfo(
                     symbol=a.symbol,
                     name=a.name or a.symbol,
-                    asset_class="crypto" if str(a.asset_class) == "AssetClass.CRYPTO" else "us_equity",
+                    asset_class=cls_name,
                     exchange=str(a.exchange),
                     tradable=a.tradable,
                     fractionable=getattr(a, "fractionable", False),
                 )
             )
+        
+        # Sort so popular tickers and crypto appear first before 10,000 alphabetical equities
+        results.sort(key=lambda x: (0 if x.symbol in popular_first else (1 if x.asset_class == "crypto" else 2), x.symbol))
         return results
 
     def get_market_data(self, symbol: str, timeframe: str = "15m", limit: int = 200) -> Optional[MarketData]:

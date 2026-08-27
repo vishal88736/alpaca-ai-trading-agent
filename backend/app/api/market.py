@@ -33,20 +33,29 @@ TIMEFRAME_INTERVAL_MAP = {
 
 
 @router.get("/assets")
-def get_assets(search: str | None = Query(default=None), alpaca: AlpacaService | None = Depends(get_optional_alpaca_service)):
+def get_assets(
+    search: str | None = Query(default=None),
+    asset_class: str | None = Query(default=None),
+    alpaca: AlpacaService | None = Depends(get_optional_alpaca_service),
+):
     assets = []
     if alpaca:
         try:
-            assets = alpaca.get_assets()
+            assets = alpaca.get_assets(asset_class=asset_class)
         except Exception:
             assets = DEFAULT_ASSETS
     else:
         assets = DEFAULT_ASSETS
 
+    if asset_class and asset_class != "all":
+        ac = asset_class.lower()
+        assets = [a for a in assets if a.asset_class == ac or (ac == "crypto" and "/" in a.symbol)]
+
     if search:
-        s = search.lower()
+        s = search.lower().strip()
         assets = [a for a in assets if s in a.symbol.lower() or s in a.name.lower()]
-    return assets[:200]
+
+    return assets[:1000]
 
 
 @router.get("/market/live-tickers")

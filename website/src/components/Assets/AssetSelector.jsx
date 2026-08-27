@@ -26,12 +26,31 @@ export function AssetSelector({ selected, onChange }) {
   const filtered = useMemo(() => {
     if (!assets) return [];
     let list = assets;
-    if (filterClass !== "all") {
-      list = list.filter((a) => a.asset_class === filterClass);
+
+    // Filter by asset class
+    if (filterClass === "crypto") {
+      list = list.filter((a) => a.asset_class === "crypto" || a.symbol.includes("/"));
+    } else if (filterClass === "us_equity") {
+      list = list.filter((a) => (a.asset_class === "us_equity" || a.asset_class === "equity") && !a.symbol.includes("/"));
+    } else if (filterClass === "options") {
+      list = list.filter((a) => a.asset_class === "options" || (!a.symbol.includes("/") && ["AAPL", "NVDA", "TSLA", "SPY", "QQQ", "MSFT", "AMZN"].includes(a.symbol)));
     }
+
     const q = query.trim().toLowerCase();
     if (!q) return list;
-    return list.filter((a) => a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
+
+    const qNormalized = q.replace(/[\/\-_]/g, "");
+
+    return list.filter((a) => {
+      const sym = a.symbol.toLowerCase();
+      const symNormalized = sym.replace(/[\/\-_]/g, "");
+      const name = (a.name || "").toLowerCase();
+      return (
+        sym.includes(q) ||
+        symNormalized.includes(qNormalized) ||
+        name.includes(q)
+      );
+    });
   }, [assets, query, filterClass]);
 
   function toggle(symbol) {
@@ -58,7 +77,7 @@ export function AssetSelector({ selected, onChange }) {
         <div>
           <div className="eyebrow">Permitted Asset Universe</div>
           <p style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}>
-            Choose the assets your automated strategy is authorized to analyze and trade.
+            Choose the assets your autonomous trading strategy is authorized to scan, price, and trade.
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -74,7 +93,7 @@ export function AssetSelector({ selected, onChange }) {
       <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
         <input
           type="text"
-          placeholder="Search by symbol or name (e.g. BTC, AAPL, SOL)…"
+          placeholder="Search by symbol or name (e.g. BTC, ETH, AAPL, SPY, SOL)…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{
@@ -89,14 +108,19 @@ export function AssetSelector({ selected, onChange }) {
         />
 
         <div style={{ display: "flex", gap: 4 }}>
-          {["all", "crypto", "us_equity"].map((cls) => (
+          {[
+            { key: "all", label: "All" },
+            { key: "crypto", label: "Crypto" },
+            { key: "us_equity", label: "Equities" },
+            { key: "options", label: "Options / Alpha" },
+          ].map((item) => (
             <button
-              key={cls}
-              className={`btn btn--sm ${filterClass === cls ? "btn--primary" : "btn--ghost"}`}
-              onClick={() => setFilterClass(cls)}
-              style={{ fontSize: 11.5, textTransform: "uppercase" }}
+              key={item.key}
+              className={`btn btn--sm ${filterClass === item.key ? "btn--primary" : "btn--ghost"}`}
+              onClick={() => setFilterClass(item.key)}
+              style={{ fontSize: 11.5 }}
             >
-              {cls === "all" ? "All" : cls === "crypto" ? "Crypto" : "Equities"}
+              {item.label}
             </button>
           ))}
         </div>
@@ -109,11 +133,14 @@ export function AssetSelector({ selected, onChange }) {
         <div style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 4 }}>
           {filtered.length === 0 && (
             <div style={{ padding: 30, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
-              No tradable assets matched your query.
+              No tradable assets matched your query &ldquo;{query}&rdquo;.
             </div>
           )}
           {filtered.slice(0, 100).map((a) => {
             const checked = selected.includes(a.symbol);
+            const isCrypto = a.asset_class === "crypto" || a.symbol.includes("/");
+            const isOptions = a.asset_class === "options";
+
             return (
               <div
                 key={a.symbol}
@@ -153,11 +180,19 @@ export function AssetSelector({ selected, onChange }) {
                     fontWeight: 700,
                     padding: "2px 7px",
                     borderRadius: "var(--radius-xs)",
-                    background: a.asset_class === "crypto" ? "rgba(6, 182, 212, 0.15)" : "rgba(99, 102, 241, 0.15)",
-                    color: a.asset_class === "crypto" ? "var(--cyan)" : "var(--accent-strong)",
+                    background: isCrypto
+                      ? "rgba(6, 182, 212, 0.15)"
+                      : isOptions
+                      ? "rgba(245, 158, 11, 0.15)"
+                      : "rgba(99, 102, 241, 0.15)",
+                    color: isCrypto
+                      ? "var(--cyan)"
+                      : isOptions
+                      ? "#fbbf24"
+                      : "var(--accent-strong)",
                   }}
                 >
-                  {a.asset_class === "crypto" ? "CRYPTO" : "EQUITY"} · {a.exchange}
+                  {isCrypto ? "CRYPTO" : isOptions ? "OPTIONS" : "EQUITY"} · {a.exchange}
                 </span>
                 {!a.tradable && (
                   <span className="mono" style={{ fontSize: 10, color: "var(--sell-strong)", fontWeight: 700 }}>
@@ -192,4 +227,3 @@ export function AssetSelector({ selected, onChange }) {
     </div>
   );
 }
-
