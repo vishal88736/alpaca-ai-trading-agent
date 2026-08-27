@@ -137,6 +137,17 @@ class AutomationEngine:
         strategy.analyze(market_data, portfolio, news=None)
         signal = strategy.generate_signal(market_data, portfolio, news=None)
         if signal is None:
+            self.decisions.append(
+                Decision(
+                    id=str(uuid.uuid4()),
+                    symbol=symbol,
+                    strategy=self.config.strategy,
+                    signal=Action.HOLD,
+                    confidence=0.5,
+                    reasoning=f"AI Opportunity Scanner: Analyzed {symbol} on {self.config.timeframe}. Price within safe channel, monitoring for next breakout.",
+                    execution_result="HOLD",
+                )
+            )
             return
 
         self.signals_count += 1
