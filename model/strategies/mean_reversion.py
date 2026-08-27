@@ -92,6 +92,13 @@ class MeanReversionStrategy(BaseStrategy):
                 if n.symbol.upper() in market_data.symbol.upper() and n.sentiment == "NEGATIVE" and z_score < 0:
                     return None
 
+        is_crypto = "/" in market_data.symbol or "USD" in market_data.symbol.upper()
+        target_usd = 500.0
+        if is_crypto:
+            order_qty = round(max(target_usd / max(current_price, 1e-6), 0.0001), 5)
+        else:
+            order_qty = max(1.0, round(target_usd / max(current_price, 1e-6), 2))
+
         # Buy condition: Price is statistically oversold (Z <= -entry_z_score)
         if z_score <= -self.config.entry_z_score:
             confidence = min(0.95, max(0.55, 0.5 + (abs(z_score) / 5.0)))
@@ -101,7 +108,7 @@ class MeanReversionStrategy(BaseStrategy):
             return TradeSignal(
                 symbol=market_data.symbol,
                 action=Action.BUY,
-                quantity=1.0,
+                quantity=order_qty,
                 order_type=OrderType.MARKET,
                 confidence=round(confidence, 2),
                 strategy=self.name,
@@ -119,7 +126,7 @@ class MeanReversionStrategy(BaseStrategy):
             return TradeSignal(
                 symbol=market_data.symbol,
                 action=Action.SELL,
-                quantity=1.0,
+                quantity=order_qty,
                 order_type=OrderType.MARKET,
                 confidence=round(confidence, 2),
                 strategy=self.name,

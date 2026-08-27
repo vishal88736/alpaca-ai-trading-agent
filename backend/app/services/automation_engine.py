@@ -49,8 +49,8 @@ class AutomationEngine:
     # ------------------------------------------------------------------ #
 
     def start(self, config: AutomationConfig) -> AutomationStatus:
-        if self.state == AutomationState.RUNNING:
-            raise RuntimeError("Automation is already running")
+        if self._task and not self._task.done():
+            self._task.cancel()
 
         self.config = config
         self.risk_engine = RiskEngine(risk_config=config.risk, allowed_assets=config.assets)

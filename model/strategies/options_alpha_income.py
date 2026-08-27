@@ -129,12 +129,12 @@ class OptionsAlphaIncomeStrategy(BaseStrategy):
         trend = analysis["trend"]
         has_underlying = analysis["has_underlying"]
 
-        # Check if volatility is adequate to harvest premium
-        if annualized_hv < self.config.min_hv_annualized:
-            return None
-
-        # Position sizing
-        order_qty = max(1.0, math.floor(self.config.max_position_size_usd / current_price))
+        # Position sizing: fractional for crypto, integer/fractional for equities
+        is_crypto = "/" in market_data.symbol or "USD" in market_data.symbol.upper()
+        if is_crypto:
+            order_qty = round(max(self.config.max_position_size_usd / max(current_price, 1e-6), 0.0001), 5)
+        else:
+            order_qty = max(1.0, round(self.config.max_position_size_usd / max(current_price, 1e-6), 2))
 
         # 1. Covered Call Opportunity (If underlying shares are already owned or initiating wheel)
         if has_underlying and trend in ("BULLISH", "NEUTRAL"):
@@ -147,7 +147,7 @@ class OptionsAlphaIncomeStrategy(BaseStrategy):
                 symbol=market_data.symbol,
                 action=Action.SELL,
                 quantity=order_qty,
-                order_type=OrderType.LIMIT,
+                order_type=OrderType.MARKET,
                 confidence=0.84,
                 strategy=self.name,
                 reasoning=reasoning,
@@ -155,7 +155,7 @@ class OptionsAlphaIncomeStrategy(BaseStrategy):
                 take_profit=call_strike,
             )
 
-        # 2. Cash-Secured Put / Entry Alpha Opportunity (Sell downside put to acquire shares at discount or harvest yield)
+        # 2. Cash-Secured Put / Income Entry Opportunity
         if not has_underlying:
             est_premium = current_price * annualized_hv * 0.035
             reasoning = (
@@ -166,7 +166,7 @@ class OptionsAlphaIncomeStrategy(BaseStrategy):
                 symbol=market_data.symbol,
                 action=Action.BUY,
                 quantity=order_qty,
-                order_type=OrderType.LIMIT,
+                order_type=OrderType.MARKET,
                 confidence=0.82,
                 strategy=self.name,
                 reasoning=reasoning,

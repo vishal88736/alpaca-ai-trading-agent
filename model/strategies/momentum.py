@@ -158,6 +158,13 @@ class MomentumStrategy(BaseStrategy):
                     elif n.sentiment == "NEGATIVE":
                         news_boost -= 0.15
 
+        is_crypto = "/" in market_data.symbol or "USD" in market_data.symbol.upper()
+        target_usd = 500.0
+        if is_crypto:
+            order_qty = round(max(target_usd / max(current_price, 1e-6), 0.0001), 5)
+        else:
+            order_qty = max(1.0, round(target_usd / max(current_price, 1e-6), 2))
+
         # Check for Bullish Entry (Supertrend Bullish + Positive ROC)
         trend_aligned = (fast_sma >= slow_sma) if self.config.trend_filter else True
         if st_trend == 1 and roc >= self.config.momentum_threshold and trend_aligned:
@@ -168,7 +175,7 @@ class MomentumStrategy(BaseStrategy):
             return TradeSignal(
                 symbol=market_data.symbol,
                 action=Action.BUY,
-                quantity=1.0,
+                quantity=order_qty,
                 order_type=OrderType.MARKET,
                 confidence=round(confidence, 2),
                 strategy=self.name,
@@ -186,7 +193,7 @@ class MomentumStrategy(BaseStrategy):
             return TradeSignal(
                 symbol=market_data.symbol,
                 action=Action.SELL,
-                quantity=1.0,
+                quantity=order_qty,
                 order_type=OrderType.MARKET,
                 confidence=round(confidence, 2),
                 strategy=self.name,

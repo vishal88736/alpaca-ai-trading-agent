@@ -147,9 +147,13 @@ class RiskEngine:
     @staticmethod
     def _estimate_notional(intent: TradeIntent, positions: dict[str, dict]) -> float | None:
         current_price = positions.get(intent.symbol, {}).get("current_price")
-        if current_price is None:
-            return None
-        return current_price * intent.quantity
+        if current_price is not None and current_price > 0:
+            return float(current_price) * intent.quantity
+        if intent.limit_price and intent.limit_price > 0:
+            return float(intent.limit_price) * intent.quantity
+        if intent.take_profit and intent.take_profit > 0:
+            return (float(intent.take_profit) / 1.08) * intent.quantity
+        return None
 
     @staticmethod
     def to_order_request(decision: RiskDecision) -> OrderRequest:
