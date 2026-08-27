@@ -21,9 +21,11 @@ class Settings(BaseSettings):
     alpaca_secret_key: str | None = None
     alpaca_paper: bool = True
 
-    # Optional third-party providers — placeholders only, never required
-    # to run the scaffold.
+    # Groq LLM Intelligence Settings
+    groq_api_key: str | None = None
+    groq_model: str = "llama-3.3-70b-versatile"
     llm_api_key: str | None = None
+    llm_model: str | None = None
     news_api_key: str | None = None
 
     # App

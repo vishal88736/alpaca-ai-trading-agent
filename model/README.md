@@ -79,6 +79,26 @@ methods reflect that honestly. Implementing them for real requires wiring
 in an external data/execution venue — see the module docstrings in each
 file for specifics.
 
+## Groq AI Orchestration Service
+
+The AI context fusion layer uses [Groq](https://groq.com) for ultra-low latency inference to synthesize strategy signals with news sentiment and portfolio exposure.
+
+### Configuration
+Set the following environment variables in `.env`:
+```bash
+GROQ_API_KEY=gsk_your_groq_api_key_here
+GROQ_MODEL=llama-3.3-70b-versatile  # Or any Groq supported model
+```
+
+Supported Groq models:
+- `llama-3.3-70b-versatile` (Default, recommended)
+- `llama3-70b-8192`
+- `llama3-8b-8192`
+- `mixtral-8x7b-32768`
+- `gemma2-9b-it`
+
+If no `GROQ_API_KEY` is set, the system automatically falls back to deterministic quantitative pass-through signals so testing and automation never block.
+
 ## Safety boundary
 
 The LLM orchestrator and every strategy only ever produce structured
