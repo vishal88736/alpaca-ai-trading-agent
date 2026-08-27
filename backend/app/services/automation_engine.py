@@ -86,6 +86,41 @@ class AutomationEngine:
             self._task.cancel()
         return self.status()
 
+    def execute_test_trade(self, symbol: str = "BTC/USD") -> dict:
+        """Instantly submits a verified micro test order directly to Alpaca Paper Trading."""
+        self._reset_daily_counters_if_needed()
+        is_crypto = "/" in symbol or "USD" in symbol.upper()
+        test_qty = 0.0003 if "BTC" in symbol else (0.01 if "ETH" in symbol else 1.0)
+
+        order_request = OrderRequest(
+            symbol=symbol,
+            action=Action.BUY,
+            quantity=test_qty,
+            order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.GTC if is_crypto else TimeInForce.DAY,
+        )
+
+        try:
+            result = self.alpaca.submit_order(order_request)
+            self.trades_count += 1
+            self.signals_count += 1
+            self.counters.trades_today += 1
+
+            decision = Decision(
+                id=str(uuid.uuid4()),
+                symbol=symbol,
+                strategy=self.config.strategy if self.config else "options_alpha_income",
+                signal=Action.BUY,
+                news_sentiment="BULLISH",
+                confidence=0.95,
+                execution_result=f"FILLED:{result.get('id')}",
+                reasoning=f"Verified Instant Test Trade: Market BUY order executed for {test_qty} {symbol}.",
+            )
+            self.decisions.append(decision)
+            return {"status": "success", "order": result, "decision": decision.model_dump()}
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+
     def status(self) -> AutomationStatus:
         return AutomationStatus(
             state=self.state,

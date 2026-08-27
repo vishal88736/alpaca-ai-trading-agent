@@ -48,3 +48,11 @@ async def emergency_stop(engine: AutomationEngine = Depends(get_automation_engin
 @router.get("/status")
 async def status(engine: AutomationEngine = Depends(get_automation_engine)):
     return engine.status()
+
+
+@router.post("/test-trade")
+async def test_trade(symbol: str = "BTC/USD", engine: AutomationEngine = Depends(get_automation_engine)):
+    res = engine.execute_test_trade(symbol=symbol)
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message", "Failed to execute test trade"))
+    return res

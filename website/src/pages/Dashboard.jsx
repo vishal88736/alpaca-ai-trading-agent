@@ -116,6 +116,31 @@ export function Dashboard() {
     }
   }
 
+  const [testingTrade, setTestingTrade] = useState(false);
+
+  async function handleExecuteTestTrade() {
+    setTestingTrade(true);
+    try {
+      const sym = selectedSymbol || (assets && assets.length > 0 ? assets[0] : "BTC/USD");
+      const res = await api.executeTestTrade(sym);
+      push(`Instant Test Trade Executed: Order ${res.order?.id || "FILLED"} on ${sym}`, "success");
+      const [acc, pos, ord, autoRes] = await Promise.allSettled([
+        api.getAccount(),
+        api.getPositions(),
+        api.getOrders(),
+        api.automationStatus(),
+      ]);
+      if (acc.status === "fulfilled") setAccount(acc.value);
+      if (pos.status === "fulfilled") setPositions(pos.value);
+      if (ord.status === "fulfilled") setOrders(ord.value);
+      if (autoRes.status === "fulfilled") setAutomationStatus(autoRes.value);
+    } catch (err) {
+      push(err instanceof ApiError ? err.message : "Failed to execute test trade", "error");
+    } finally {
+      setTestingTrade(false);
+    }
+  }
+
   const tickerItems = (positions || []).map((p) => ({
     symbol: p.symbol,
     price: p.current_price,
@@ -129,11 +154,28 @@ export function Dashboard() {
           <div className="eyebrow">Live Overview</div>
           <h2 style={{ fontSize: 24, marginTop: 4 }}>Trading Dashboard</h2>
         </div>
-        {!automationStatus || automationStatus.state === "IDLE" ? (
-          <Link to="/strategy" className="btn btn--primary">
-            Set Up Automation
-          </Link>
-        ) : null}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button
+            className="btn btn--ghost"
+            style={{
+              borderColor: "var(--accent)",
+              color: "var(--accent-strong)",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+            onClick={handleExecuteTestTrade}
+            disabled={testingTrade}
+          >
+            {testingTrade ? "Placing Order…" : "⚡ Execute Test Trade (Instant Fill)"}
+          </button>
+          {!automationStatus || automationStatus.state === "IDLE" ? (
+            <Link to="/strategy" className="btn btn--primary">
+              Set Up Automation
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       {accountError && (

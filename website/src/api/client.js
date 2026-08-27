@@ -61,6 +61,8 @@ export const api = {
   stopAutomation: () => request("/automation/stop", { method: "POST" }),
   emergencyStop: () => request("/automation/emergency-stop", { method: "POST" }),
   automationStatus: () => request("/automation/status"),
+  executeTestTrade: (symbol = "BTC/USD") =>
+    request(`/automation/test-trade?symbol=${encodeURIComponent(symbol)}`, { method: "POST" }),
 
   // Decisions / trades
   getDecisions: () => request("/decisions"),
