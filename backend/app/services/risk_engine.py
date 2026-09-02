@@ -52,6 +52,7 @@ class RiskEngine:
         account: dict,
         positions: dict[str, dict],
         counters: DailyRiskCounters,
+        current_price: float | None = None,
     ) -> RiskDecision:
         passed: list[str] = []
         failed: list[str] = []
@@ -70,9 +71,6 @@ class RiskEngine:
 
         # 3. Strategy permission (caller must confirm intent.source_strategy
         #    matches the strategy the user actually selected/started)
-        # (Enforced by the automation engine constructing `allowed_assets`
-        #  and passing only intents from the active strategy; still counted
-        #  here as an explicit, auditable check.)
         passed.append("strategy_permission")
 
         # 4. Duplicate order protection
@@ -83,39 +81,52 @@ class RiskEngine:
             passed.append("duplicate_order")
 
         # 5. Max order size (USD)
-        order_notional = self._estimate_notional(intent, positions)
-        if order_notional is not None and order_notional > self.risk_config.max_order_size_usd:
+        order_notional = self._estimate_notional(intent, positions, current_price)
+        if order_notional is None:
+            failed.append("unknown_order_notional")
+        elif order_notional > self.risk_config.max_order_size_usd:
             failed.append("max_order_size_exceeded")
         else:
             passed.append("max_order_size_exceeded")
 
         # 6. Max position size (% of portfolio)
         portfolio_value = account.get("portfolio_value", 0.0)
-        if portfolio_value > 0 and order_notional is not None:
-            existing = positions.get(intent.symbol, {}).get("market_value", 0.0)
-            projected_pct = (abs(existing) + order_notional) / portfolio_value * 100
-            if projected_pct > self.risk_config.max_position_pct:
-                failed.append("max_position_pct_exceeded")
+        if portfolio_value > 0:
+            if order_notional is None:
+                if "unknown_order_notional" not in failed: failed.append("unknown_order_notional")
             else:
-                passed.append("max_position_pct_exceeded")
+                existing = positions.get(intent.symbol, {}).get("market_value", 0.0)
+                projected_pct = (abs(existing) + order_notional) / portfolio_value * 100
+                if projected_pct > self.risk_config.max_position_pct:
+                    failed.append("max_position_pct_exceeded")
+                else:
+                    passed.append("max_position_pct_exceeded")
         else:
             passed.append("max_position_pct_exceeded")
 
         # 7. Max portfolio exposure (%)
         if portfolio_value > 0:
-            total_exposure = sum(abs(p.get("market_value", 0.0)) for p in positions.values())
-            projected_total_pct = (total_exposure + (order_notional or 0)) / portfolio_value * 100
-            if projected_total_pct > self.risk_config.max_portfolio_exposure_pct:
-                failed.append("max_portfolio_exposure_exceeded")
+            if order_notional is None:
+                if "unknown_order_notional" not in failed: failed.append("unknown_order_notional")
             else:
-                passed.append("max_portfolio_exposure_exceeded")
+                total_exposure = sum(abs(p.get("market_value", 0.0)) for p in positions.values())
+                projected_total_pct = (total_exposure + order_notional) / portfolio_value * 100
+                if projected_total_pct > self.risk_config.max_portfolio_exposure_pct:
+                    failed.append("max_portfolio_exposure_exceeded")
+                else:
+                    passed.append("max_portfolio_exposure_exceeded")
         else:
             passed.append("max_portfolio_exposure_exceeded")
 
         # 8. Available buying power
         buying_power = account.get("buying_power", 0.0)
-        if intent.action == Action.BUY and order_notional is not None and order_notional > buying_power:
-            failed.append("insufficient_buying_power")
+        if intent.action == Action.BUY:
+            if order_notional is None:
+                if "unknown_order_notional" not in failed: failed.append("unknown_order_notional")
+            elif order_notional > buying_power:
+                failed.append("insufficient_buying_power")
+            else:
+                passed.append("insufficient_buying_power")
         else:
             passed.append("insufficient_buying_power")
 
@@ -145,14 +156,18 @@ class RiskEngine:
         )
 
     @staticmethod
-    def _estimate_notional(intent: TradeIntent, positions: dict[str, dict]) -> float | None:
-        current_price = positions.get(intent.symbol, {}).get("current_price")
-        if current_price is not None and current_price > 0:
-            return float(current_price) * intent.quantity
-        if intent.limit_price and intent.limit_price > 0:
-            return float(intent.limit_price) * intent.quantity
+    def _estimate_notional(intent: TradeIntent, positions: dict[str, dict], current_price: float | None = None) -> float | None:
+        # 1. Fall back to existing position's price if current_price wasn't explicitly passed
+        pos_price = positions.get(intent.symbol, {}).get("current_price")
+        price = current_price if current_price is not None and current_price > 0 else pos_price
+        
+        if price is not None and float(price) > 0:
+            return float(price) * intent.quantity
+        
+        # 2. Fall back to take_profit if defined
         if intent.take_profit and intent.take_profit > 0:
             return (float(intent.take_profit) / 1.08) * intent.quantity
+            
         return None
 
     @staticmethod

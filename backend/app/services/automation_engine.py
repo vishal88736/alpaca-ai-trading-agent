@@ -93,13 +93,51 @@ class AutomationEngine:
         is_crypto = "/" in symbol or "USD" in symbol.upper()
         test_qty = 0.0003 if "BTC" in symbol else (0.01 if "ETH" in symbol else 1.0)
 
-        order_request = OrderRequest(
-            symbol=symbol,
+        # 1. Construct TradeIntent instead of raw OrderRequest
+        intent = TradeIntent(
             action=Action.BUY,
+            symbol=symbol,
             quantity=test_qty,
             order_type=OrderType.MARKET,
             time_in_force=TimeInForce.GTC if is_crypto else TimeInForce.DAY,
+            confidence=0.95,
+            reasoning="Test Trade",
+            source_strategy="test_trade",
+            news_sentiment="NEUTRAL",
         )
+
+        # 2. Evaluate with Risk Engine if it's active
+        if self.risk_engine:
+            try:
+                account = self.alpaca.get_account()
+                positions = {p["symbol"]: p for p in self.alpaca.get_positions()}
+                market_data = self.alpaca.get_market_data(symbol, timeframe="1m")
+                current_price = market_data.bars[-1].close if market_data and market_data.bars else None
+            except Exception as exc:
+                return {"status": "error", "message": f"Failed to fetch market data: {str(exc)}"}
+
+            was_allowed = symbol in self.risk_engine.allowed_assets
+            self.risk_engine.allowed_assets.add(symbol)
+            
+            decision = self.risk_engine.evaluate(
+                intent, account, positions, self.counters, current_price=current_price
+            )
+            
+            if not was_allowed:
+                self.risk_engine.allowed_assets.remove(symbol)
+
+            if not decision.approved:
+                return {"status": "error", "message": f"Risk Engine rejected test trade: {decision.rejection_reason}"}
+                
+            order_request = self.risk_engine.to_order_request(decision)
+        else:
+            order_request = OrderRequest(
+                symbol=symbol,
+                action=Action.BUY,
+                quantity=test_qty,
+                order_type=OrderType.MARKET,
+                time_in_force=TimeInForce.GTC if is_crypto else TimeInForce.DAY,
+            )
 
         try:
             result = self.alpaca.submit_order(order_request)
@@ -213,7 +251,8 @@ class AutomationEngine:
             )
             return
 
-        decision = self.risk_engine.evaluate(intent, account, positions, self.counters)
+        current_price = market_data.bars[-1].close if market_data and market_data.bars else None
+        decision = self.risk_engine.evaluate(intent, account, positions, self.counters, current_price=current_price)
 
         execution_result = None
         if decision.approved:
