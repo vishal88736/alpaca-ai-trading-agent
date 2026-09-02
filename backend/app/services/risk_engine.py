@@ -182,4 +182,6 @@ class RiskEngine:
             quantity=intent.quantity,
             order_type=intent.order_type,
             time_in_force=intent.time_in_force,
+            limit_price=intent.limit_price,
+            stop_price=intent.stop_price,
         )

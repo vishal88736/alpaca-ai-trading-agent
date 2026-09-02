@@ -63,6 +63,8 @@ class TradeSignal(BaseModel):
     reasoning: str = Field(description="Concise, user-facing explanation. No hidden chain-of-thought.")
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
     @field_validator("quantity")
@@ -102,6 +104,8 @@ class TradeIntent(BaseModel):
     reasoning: str
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
     source_strategy: str
     news_sentiment: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)

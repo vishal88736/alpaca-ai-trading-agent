@@ -231,6 +231,8 @@ class LLMOrchestrator:
             reasoning=intent_reasoning,
             stop_loss=strategy_signal.stop_loss,
             take_profit=strategy_signal.take_profit,
+            limit_price=getattr(strategy_signal, "limit_price", None),
+            stop_price=getattr(strategy_signal, "stop_price", None),
             source_strategy=strategy_signal.strategy,
             news_sentiment=news_sentiment,
         )

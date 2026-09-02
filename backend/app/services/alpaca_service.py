@@ -20,7 +20,7 @@ from alpaca.data.requests import CryptoBarsRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, TimeInForce as AlpacaTimeInForce
-from alpaca.trading.requests import GetAssetsRequest, MarketOrderRequest
+from alpaca.trading.requests import GetAssetsRequest, MarketOrderRequest, LimitOrderRequest, StopOrderRequest, StopLimitOrderRequest
 
 from model.schemas.market_data import AssetInfo, Bar, MarketData
 from model.schemas.trade_signal import Action, OrderRequest
@@ -247,14 +247,54 @@ class AlpacaService:
         # Alpaca requires GTC for crypto, DAY for equities
         time_in_force = AlpacaTimeInForce.GTC if is_crypto else AlpacaTimeInForce.DAY
 
-        market_order_data = MarketOrderRequest(
-            symbol=order.symbol,
-            qty=round(order.quantity, 6) if is_crypto else round(order.quantity),
-            side=side,
-            time_in_force=time_in_force,
-            client_order_id=order.client_order_id,
-        )
-        result = self.trading_client.submit_order(order_data=market_order_data)
+        qty = round(order.quantity, 6) if is_crypto else round(order.quantity)
+
+        if order.order_type == "MARKET":
+            order_data = MarketOrderRequest(
+                symbol=order.symbol,
+                qty=qty,
+                side=side,
+                time_in_force=time_in_force,
+                client_order_id=order.client_order_id,
+            )
+        elif order.order_type == "LIMIT":
+            if order.limit_price is None:
+                raise ValueError("Limit order requires a limit_price")
+            order_data = LimitOrderRequest(
+                symbol=order.symbol,
+                qty=qty,
+                side=side,
+                time_in_force=time_in_force,
+                limit_price=order.limit_price,
+                client_order_id=order.client_order_id,
+            )
+        elif order.order_type == "STOP":
+            if order.stop_price is None:
+                raise ValueError("Stop order requires a stop_price")
+            order_data = StopOrderRequest(
+                symbol=order.symbol,
+                qty=qty,
+                side=side,
+                time_in_force=time_in_force,
+                stop_price=order.stop_price,
+                client_order_id=order.client_order_id,
+            )
+        elif order.order_type == "STOP_LIMIT":
+            if order.stop_price is None or order.limit_price is None:
+                raise ValueError("Stop-Limit order requires both stop_price and limit_price")
+            order_data = StopLimitOrderRequest(
+                symbol=order.symbol,
+                qty=qty,
+                side=side,
+                time_in_force=time_in_force,
+                stop_price=order.stop_price,
+                limit_price=order.limit_price,
+                client_order_id=order.client_order_id,
+            )
+        else:
+            raise ValueError(f"Unsupported order type: {order.order_type}")
+
+        result = self.trading_client.submit_order(order_data=order_data)
         return {
             "id": str(result.id),
             "symbol": result.symbol,
