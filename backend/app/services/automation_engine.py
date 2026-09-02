@@ -143,7 +143,7 @@ class AutomationEngine:
     async def _run_loop(self, poll_seconds: int = 15) -> None:
         strategy = get_strategy(self.config.strategy)
         strategy.initialize(self.config.risk.model_dump())
-
+        
         while self.state in (AutomationState.RUNNING, AutomationState.PAUSED):
             if self.state == AutomationState.PAUSED:
                 await asyncio.sleep(2)
