@@ -16,7 +16,7 @@ from datetime import date, datetime
 from model.news.news_strategy import NewsStrategy
 from model.orchestrator.llm_orchestrator import LLMOrchestrator
 from model.schemas.agent_state import AutomationConfig, AutomationState, AutomationStatus, Decision
-from model.schemas.trade_signal import Action, OrderRequest, OrderType, TimeInForce
+from model.schemas.trade_signal import Action, OrderRequest, OrderType, TimeInForce, TradeIntent
 from model.strategies.registry import get_strategy
 
 from app.services.alpaca_service import AlpacaService
@@ -87,7 +87,7 @@ class AutomationEngine:
             self._task.cancel()
         return self.status()
 
-    def execute_test_trade(self, symbol: str = "BTC/USD") -> dict:
+    async def execute_test_trade(self, symbol: str = "BTC/USD") -> dict:
         """Instantly submits a verified micro test order directly to Alpaca Paper Trading."""
         self._reset_daily_counters_if_needed()
         is_crypto = "/" in symbol or "USD" in symbol.upper()
@@ -109,9 +109,10 @@ class AutomationEngine:
         # 2. Evaluate with Risk Engine if it's active
         if self.risk_engine:
             try:
-                account = self.alpaca.get_account()
-                positions = {p["symbol"]: p for p in self.alpaca.get_positions()}
-                market_data = self.alpaca.get_market_data(symbol, timeframe="1m")
+                account = await asyncio.to_thread(self.alpaca.get_account)
+                raw_positions = await asyncio.to_thread(self.alpaca.get_positions)
+                positions = {p["symbol"]: p for p in raw_positions}
+                market_data = await asyncio.to_thread(self.alpaca.get_market_data, symbol, timeframe="1m")
                 current_price = market_data.bars[-1].close if market_data and market_data.bars else None
             except Exception as exc:
                 return {"status": "error", "message": f"Failed to fetch market data: {str(exc)}"}
@@ -140,7 +141,7 @@ class AutomationEngine:
             )
 
         try:
-            result = self.alpaca.submit_order(order_request)
+            result = await asyncio.to_thread(self.alpaca.submit_order, order_request)
             self.trades_count += 1
             self.signals_count += 1
             self.counters.trades_today += 1
@@ -195,21 +196,22 @@ class AutomationEngine:
             await asyncio.sleep(poll_seconds)
 
     async def _process_symbol(self, strategy, symbol: str) -> None:
-        market_data = self.alpaca.get_market_data(symbol, timeframe=self.config.timeframe)
+        market_data = await asyncio.to_thread(self.alpaca.get_market_data, symbol, timeframe=self.config.timeframe)
         if market_data is None:
             # Do not fabricate data — just skip this cycle for this symbol.
             return
 
         try:
-            account = self.alpaca.get_account()
-            positions = {p["symbol"]: p for p in self.alpaca.get_positions()}
+            account = await asyncio.to_thread(self.alpaca.get_account)
+            raw_positions = await asyncio.to_thread(self.alpaca.get_positions)
+            positions = {p["symbol"]: p for p in raw_positions}
         except Exception:
             return
 
         portfolio = {"account": account, "positions": positions}
 
-        strategy.analyze(market_data, portfolio, news=None)
-        signal = strategy.generate_signal(market_data, portfolio, news=None)
+        await asyncio.to_thread(strategy.analyze, market_data, portfolio, news=None)
+        signal = await asyncio.to_thread(strategy.generate_signal, market_data, portfolio, news=None)
         if signal is None:
             self.decisions.append(
                 Decision(
@@ -226,9 +228,10 @@ class AutomationEngine:
 
         self.signals_count += 1
 
-        news_signals = self.news_strategy.generate_signal(news=[], market_data=market_data)
+        news_signals = await asyncio.to_thread(self.news_strategy.generate_signal, news=[], market_data=market_data)
 
-        intent = self.orchestrator.generate_trade_intent(
+        intent = await asyncio.to_thread(
+            self.orchestrator.generate_trade_intent,
             strategy_signal=signal,
             news_signals=news_signals,
             market_data=market_data,
@@ -258,7 +261,7 @@ class AutomationEngine:
         if decision.approved:
             order_request = self.risk_engine.to_order_request(decision)
             try:
-                result = self.alpaca.submit_order(order_request)
+                result = await asyncio.to_thread(self.alpaca.submit_order, order_request)
                 execution_result = f"FILLED:{result.get('id')}"
                 self.trades_count += 1
                 self.counters.trades_today += 1
