@@ -20,6 +20,7 @@ from model.schemas.trade_signal import Action, OrderRequest, OrderType, TimeInFo
 from model.strategies.registry import get_strategy
 
 from app.services.alpaca_service import AlpacaService
+from app.services.news_service import fetch_news
 from app.services.risk_engine import DailyRiskCounters, RiskEngine
 
 
@@ -254,7 +255,12 @@ class AutomationEngine:
 
         self.signals_count += 1
 
-        news_signals = await asyncio.to_thread(self.news_strategy.generate_signal, news=[], market_data=market_data)
+        try:
+            articles = await fetch_news(symbols=[symbol], limit=5)
+        except Exception:
+            articles = []
+
+        news_signals = await asyncio.to_thread(self.news_strategy.generate_signal, news=articles, market_data=market_data)
 
         intent = await asyncio.to_thread(
             self.orchestrator.generate_trade_intent,
