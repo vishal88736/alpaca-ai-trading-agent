@@ -196,7 +196,22 @@ class AutomationEngine:
             await asyncio.sleep(poll_seconds)
 
     async def _process_symbol(self, strategy, symbol: str) -> None:
-        market_data = await asyncio.to_thread(self.alpaca.get_market_data, symbol, timeframe=self.config.timeframe)
+        try:
+            market_data = await asyncio.to_thread(self.alpaca.get_market_data, symbol, timeframe=self.config.timeframe)
+        except Exception as exc:
+            self.decisions.append(
+                Decision(
+                    id=str(uuid.uuid4()),
+                    symbol=symbol,
+                    strategy=self.config.strategy,
+                    signal=Action.HOLD,
+                    confidence=0.0,
+                    reasoning=f"Data Feed Error: Failed to fetch market data from Alpaca: {str(exc)}",
+                    execution_result=f"ERROR: {exc}",
+                )
+            )
+            return
+
         if market_data is None:
             # Do not fabricate data — just skip this cycle for this symbol.
             return
@@ -205,7 +220,18 @@ class AutomationEngine:
             account = await asyncio.to_thread(self.alpaca.get_account)
             raw_positions = await asyncio.to_thread(self.alpaca.get_positions)
             positions = {p["symbol"]: p for p in raw_positions}
-        except Exception:
+        except Exception as exc:
+            self.decisions.append(
+                Decision(
+                    id=str(uuid.uuid4()),
+                    symbol=symbol,
+                    strategy=self.config.strategy,
+                    signal=Action.HOLD,
+                    confidence=0.0,
+                    reasoning=f"Broker Error: Failed to fetch portfolio data: {str(exc)}",
+                    execution_result=f"ERROR: {exc}",
+                )
+            )
             return
 
         portfolio = {"account": account, "positions": positions}

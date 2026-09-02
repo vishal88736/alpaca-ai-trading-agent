@@ -167,53 +167,17 @@ class AlpacaService:
         tf = TIMEFRAME_MAP.get(timeframe, TimeFrame.Minute)
         is_crypto = "/" in symbol
 
-        raw_bars = []
-        try:
-            if is_crypto:
-                request = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
-                bars_resp = self.crypto_data_client.get_crypto_bars(request)
-            else:
-                request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
-                bars_resp = self.stock_data_client.get_stock_bars(request)
-            raw_bars = bars_resp.data.get(symbol, []) if hasattr(bars_resp, "data") else []
-        except Exception:
-            raw_bars = []
+        if is_crypto:
+            request = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
+            bars_resp = self.crypto_data_client.get_crypto_bars(request)
+        else:
+            request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
+            bars_resp = self.stock_data_client.get_stock_bars(request)
+        
+        raw_bars = bars_resp.data.get(symbol, []) if hasattr(bars_resp, "data") else []
 
-        # Fallback to public live bars for crypto if Alpaca data client is empty
-        if not raw_bars and is_crypto:
-            try:
-                import httpx
-                clean_sym = symbol.replace("/", "").replace("-", "").upper()
-                if not clean_sym.endswith("USDT") and not clean_sym.endswith("USD"):
-                    clean_sym += "USDT"
-                elif clean_sym.endswith("USD"):
-                    clean_sym = clean_sym[:-3] + "USDT"
-
-                interval_map = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "1D": "1d"}
-                interval = interval_map.get(timeframe, "15m")
-                with httpx.Client(timeout=4.0) as client:
-                    resp = client.get(f"https://api.binance.com/api/v3/klines?symbol={clean_sym}&interval={interval}&limit=100")
-                    if resp.status_code == 200:
-                        klines = resp.json()
-                        bars = [
-                            Bar(
-                                timestamp=datetime.fromtimestamp(k[0] / 1000.0, timezone.utc),
-                                open=float(k[1]),
-                                high=float(k[2]),
-                                low=float(k[3]),
-                                close=float(k[4]),
-                                volume=float(k[5]),
-                            )
-                            for k in klines
-                        ]
-                        return MarketData(
-                            symbol=symbol,
-                            asset_class=AssetClass.CRYPTO,
-                            timeframe=Timeframe(timeframe) if timeframe in Timeframe.__members__.values() else Timeframe.MIN_15,
-                            bars=bars,
-                        )
-            except Exception:
-                pass
+        # Alpaca data client should be the single source of truth.
+        # Fallbacks to un-rate-limited scraping are removed to prevent silent failures.
 
         if not raw_bars:
             return None
