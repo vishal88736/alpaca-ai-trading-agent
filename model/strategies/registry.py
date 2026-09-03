@@ -9,8 +9,6 @@ them hardcoded in the UI.
 from __future__ import annotations
 
 from model.strategies.base import BaseStrategy
-from model.strategies.cross_exchange_arbitrage import CrossExchangeArbitrageStrategy
-from model.strategies.funding_arbitrage import FundingArbitrageStrategy
 from model.strategies.market_making import MarketMakingStrategy
 from model.strategies.mean_reversion import MeanReversionStrategy
 from model.strategies.momentum import MomentumStrategy
@@ -21,8 +19,6 @@ STRATEGIES: dict[str, type[BaseStrategy]] = {
     "momentum": MomentumStrategy,
     "mean_reversion": MeanReversionStrategy,
     "market_making": MarketMakingStrategy,
-    "funding_arbitrage": FundingArbitrageStrategy,
-    "cross_exchange_arbitrage": CrossExchangeArbitrageStrategy,
 }
 
 STRATEGY_METADATA: dict[str, dict] = {
@@ -45,16 +41,6 @@ STRATEGY_METADATA: dict[str, dict] = {
         "display_name": "Market Making",
         "description": "Captures bid/ask spread while managing inventory and risk.",
         "requires_external_venue": False,
-    },
-    "funding_arbitrage": {
-        "display_name": "Funding-Rate Arbitrage",
-        "description": "Market-neutral strategy capturing funding/basis opportunities.",
-        "requires_external_venue": True,
-    },
-    "cross_exchange_arbitrage": {
-        "display_name": "Cross-Exchange Arbitrage",
-        "description": "Looks for price discrepancies across supported venues/data sources.",
-        "requires_external_venue": True,
     },
 }
 
