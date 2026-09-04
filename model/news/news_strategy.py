@@ -1,22 +1,24 @@
 """
-News Strategy (STUB — not implemented)
+News Strategy
 
 Responsible for converting raw news articles into structured market
 sentiment/features (a `NewsSignal`) that strategies and the LLM Orchestrator
 can consume. Does NOT decide trades on its own.
-
-TODO(you): implement actual news intelligence — e.g. LLM-based sentiment
-scoring, keyword/event extraction, source credibility weighting.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any, Optional
 
 from pydantic import BaseModel
 
 from model.schemas.market_data import MarketData
 from model.schemas.trade_signal import NewsSignal
+from model.orchestrator.llm_orchestrator import LLMProvider, GroqProvider, FallbackPassThroughProvider
+
+logger = logging.getLogger(__name__)
 
 
 class NewsArticle(BaseModel):
@@ -32,7 +34,7 @@ class NewsArticle(BaseModel):
 
 class NewsStrategy:
     """
-    Converts raw news into structured sentiment signals.
+    Converts raw news into structured sentiment signals using an LLM.
 
     Expected inputs:
         news:        list[NewsArticle] relevant to the symbols being traded
@@ -42,30 +44,12 @@ class NewsStrategy:
         list[NewsSignal] — one per symbol with relevant news, or empty list.
     """
 
-    POSITIVE_WORDS = {
-        "surge", "surges", "rally", "rallies", "bull", "bullish", "high", "highs",
-        "gain", "gains", "jump", "jumps", "breakout", "approval", "adoption", "inflow", "inflows"
-    }
-    NEGATIVE_WORDS = {
-        "drop", "drops", "crash", "crashes", "bear", "bearish", "low", "lows",
-        "loss", "losses", "fall", "falls", "ban", "bans", "hack", "hacked", "sec", "fine", "fines", "censure"
-    }
-
-    def analyze(self, news: list[NewsArticle], market_data: Optional[MarketData] = None) -> dict[str, Any]:
-        """Group news by symbol and compute word sentiment frequency."""
-        summary: dict[str, dict[str, Any]] = {}
-        for article in news:
-            sym = (article.related_symbol or "CRYPTO").upper()
-            if sym not in summary:
-                summary[sym] = {"pos": 0, "neg": 0, "articles": []}
-            summary[sym]["articles"].append(article)
-
-            text = f"{article.headline} {article.body or ''}".lower()
-            words = set(text.split())
-            summary[sym]["pos"] += len(words.intersection(self.POSITIVE_WORDS))
-            summary[sym]["neg"] += len(words.intersection(self.NEGATIVE_WORDS))
-
-        return summary
+    def __init__(self, llm_provider: Optional[LLMProvider] = None) -> None:
+        if llm_provider is not None:
+            self.llm_provider = llm_provider
+        else:
+            groq = GroqProvider()
+            self.llm_provider = groq if groq.is_configured() else FallbackPassThroughProvider()
 
     def generate_signal(
         self, news: list[NewsArticle], market_data: Optional[MarketData] = None
@@ -74,37 +58,74 @@ class NewsStrategy:
         if not news:
             return []
 
-        analysis = self.analyze(news, market_data)
+        # Group news by symbol
+        summary: dict[str, list[NewsArticle]] = {}
+        for article in news:
+            sym = (article.related_symbol or "CRYPTO").upper()
+            if sym not in summary:
+                summary[sym] = []
+            summary[sym].append(article)
+
         signals: list[NewsSignal] = []
 
-        for sym, data in analysis.items():
-            pos = data["pos"]
-            neg = data["neg"]
-            total = pos + neg
-            article_count = len(data["articles"])
+        for sym, articles in summary.items():
+            article_count = len(articles)
+            first_headline = articles[0].headline if articles else "Recent crypto news update"
+            
+            # Default signal in case of LLM failure or PassThrough
+            sentiment = "NEUTRAL"
+            score = 0.0
+            llm_summary = f"Analysis of {article_count} headline(s). Lead: {first_headline[:100]}"
 
-            if total == 0:
-                score = 0.0
-                sentiment = "NEUTRAL"
-            else:
-                score = max(-1.0, min(1.0, (pos - neg) / total))
-                if score >= 0.2:
-                    sentiment = "POSITIVE"
-                elif score <= -0.2:
-                    sentiment = "NEGATIVE"
-                else:
-                    sentiment = "NEUTRAL"
+            # Attempt LLM evaluation
+            if isinstance(self.llm_provider, GroqProvider) and self.llm_provider.is_configured():
+                try:
+                    news_payload = [
+                        {"headline": a.headline, "body": a.body or ""} 
+                        for a in articles
+                    ]
+                    
+                    prompt_payload = {
+                        "task": "Analyze sentiment of the provided news articles for the given financial asset.",
+                        "symbol": sym,
+                        "articles": news_payload,
+                        "response_schema": {
+                            "sentiment": "POSITIVE | NEGATIVE | NEUTRAL",
+                            "sentiment_score": "float from -1.0 (extremely negative) to 1.0 (extremely positive)",
+                            "summary": "Concise 1-2 sentence summary of the overall news impact on the asset"
+                        }
+                    }
 
-            first_headline = data["articles"][0].headline if data["articles"] else "Recent crypto news update"
+                    system_prompt = (
+                        "You are a quantitative trading news analyst. "
+                        "Evaluate the sentiment of the provided news articles. "
+                        "Always respond strictly with a valid JSON object matching the requested schema."
+                    )
+
+                    raw_response = self.llm_provider.complete(
+                        prompt=json.dumps(prompt_payload, indent=2),
+                        system_prompt=system_prompt
+                    )
+                    parsed = json.loads(raw_response)
+
+                    if "sentiment" in parsed and parsed["sentiment"].upper() in ("POSITIVE", "NEGATIVE", "NEUTRAL"):
+                        sentiment = parsed["sentiment"].upper()
+                    if "sentiment_score" in parsed and isinstance(parsed["sentiment_score"], (int, float)):
+                        score = max(-1.0, min(1.0, float(parsed["sentiment_score"])))
+                    if "summary" in parsed and parsed["summary"]:
+                        llm_summary = parsed["summary"]
+
+                except Exception as e:
+                    logger.warning(f"Failed to analyze news with LLM for {sym}, falling back to NEUTRAL: {e}")
+
             signals.append(
                 NewsSignal(
                     symbol=sym,
                     sentiment=sentiment,
                     sentiment_score=round(score, 2),
-                    summary=f"Analysis of {article_count} headline(s). Lead: {first_headline[:100]}",
+                    summary=llm_summary,
                     source_count=article_count,
                 )
             )
 
         return signals
-

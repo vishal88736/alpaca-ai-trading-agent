@@ -26,7 +26,7 @@ from datetime import date, datetime
 from model.news.news_strategy import NewsStrategy
 from model.orchestrator.llm_orchestrator import LLMOrchestrator
 from model.schemas.agent_state import AutomationConfig, AutomationState, AutomationStatus, Decision
-from model.schemas.trade_signal import Action, OrderRequest, OrderType, TimeInForce
+from model.schemas.trade_signal import Action, OrderRequest, OrderType, TimeInForce, TradeIntent
 from model.strategies.registry import get_strategy, is_live_executable
 
 from app.agents.market_intelligence import market_intel_agent
@@ -118,7 +118,7 @@ class AutomationEngine:
         self._add_event("Deterministic Risk", "EMERGENCY_STOP", "Kill switch engaged. All further orders blocked.")
         return self.status()
 
-    def execute_test_trade(self, symbol: str = "BTC/USD") -> dict:
+    async def execute_test_trade(self, symbol: str = "BTC/USD") -> dict:
         """Submit a real micro paper order and return the actual Alpaca response.
 
         No fake fills: if Alpaca rejects or is unavailable we return the real error.
@@ -127,17 +127,56 @@ class AutomationEngine:
         is_crypto = "/" in symbol or "-" in symbol
         test_qty = 0.0003 if "BTC" in symbol.upper() else (0.01 if "ETH" in symbol.upper() else 1.0)
 
-        order_request = OrderRequest(
-            symbol=symbol,
+        # 1. Construct TradeIntent instead of raw OrderRequest
+        intent = TradeIntent(
             action=Action.BUY,
+            symbol=symbol,
             quantity=test_qty,
             order_type=OrderType.MARKET,
             time_in_force=TimeInForce.GTC if is_crypto else TimeInForce.DAY,
-            client_order_id=f"TEST-{uuid.uuid4().hex[:8]}",
+            confidence=0.95,
+            reasoning="Test Trade",
+            source_strategy="test_trade",
+            news_sentiment="NEUTRAL",
         )
 
+        # 2. Evaluate with Risk Engine if it's active
+        if self.risk_engine:
+            try:
+                account = await asyncio.to_thread(self.alpaca.get_account)
+                raw_positions = await asyncio.to_thread(self.alpaca.get_positions)
+                positions = {p["symbol"]: p for p in raw_positions}
+                market_data = await asyncio.to_thread(self.alpaca.get_market_data, symbol, timeframe="1m")
+                current_price = market_data.bars[-1].close if market_data and market_data.bars else None
+            except Exception as exc:
+                return {"status": "error", "message": f"Failed to fetch market data: {str(exc)}"}
+
+            was_allowed = symbol in self.risk_engine.allowed_assets
+            self.risk_engine.allowed_assets.add(symbol)
+            
+            decision = self.risk_engine.evaluate(
+                intent, account, positions, self.counters, current_price=current_price
+            )
+            
+            if not was_allowed:
+                self.risk_engine.allowed_assets.remove(symbol)
+
+            if not decision.approved:
+                return {"status": "error", "message": f"Risk Engine rejected test trade: {decision.rejection_reason}"}
+                
+            order_request = self.risk_engine.to_order_request(decision)
+        else:
+            order_request = OrderRequest(
+                symbol=symbol,
+                action=Action.BUY,
+                quantity=test_qty,
+                order_type=OrderType.MARKET,
+                time_in_force=TimeInForce.GTC if is_crypto else TimeInForce.DAY,
+                client_order_id=f"TEST-{uuid.uuid4().hex[:8]}",
+            )
+
         try:
-            result = self.alpaca.submit_order(order_request)
+            result = await asyncio.to_thread(self.alpaca.submit_order, order_request)
             self._sync_latest_order(result)
             repository.save_order(result, strategy=self.config.strategy if self.config else "test_trade", paper=self.alpaca.paper)
             self.trades_count += 1
@@ -189,30 +228,47 @@ class AutomationEngine:
             await asyncio.sleep(poll_seconds)
 
     async def _process_symbol(self, strategy, symbol: str) -> None:
-        market_data = self.alpaca.get_market_data(symbol, timeframe=self.config.timeframe)
+        try:
+            market_data = await asyncio.to_thread(self.alpaca.get_market_data, symbol, timeframe=self.config.timeframe)
+        except Exception as exc:
+            self.decisions.append(
+                Decision(
+                    id=str(uuid.uuid4()),
+                    symbol=symbol,
+                    strategy=self.config.strategy,
+                    signal=Action.HOLD,
+                    confidence=0.0,
+                    reasoning=f"Data Feed Error: Failed to fetch market data from Alpaca: {str(exc)}",
+                    execution_result=f"ERROR: {exc}",
+                )
+            )
+            return
+
         if market_data is None:
             return
 
         try:
-            account = self.alpaca.get_account()
-            positions = {p["symbol"]: p for p in self.alpaca.get_positions()}
-        except Exception:
+            account = await asyncio.to_thread(self.alpaca.get_account)
+            raw_positions = await asyncio.to_thread(self.alpaca.get_positions)
+            positions = {p["symbol"]: p for p in raw_positions}
+        except Exception as exc:
+            self.decisions.append(
+                Decision(
+                    id=str(uuid.uuid4()),
+                    symbol=symbol,
+                    strategy=self.config.strategy,
+                    signal=Action.HOLD,
+                    confidence=0.0,
+                    reasoning=f"Broker Error: Failed to fetch portfolio data: {str(exc)}",
+                    execution_result=f"ERROR: {exc}",
+                )
+            )
             return
 
         portfolio = {"account": account, "positions": positions}
 
-        strategy.analyze(market_data, portfolio, news=None)
-        signal = strategy.generate_signal(market_data, portfolio, news=None)
-
-        # Real news (word-sentiment) — failures degrade to empty, never fabricated.
-        news_signals = []
-        try:
-            articles = await fetch_news(symbols=[symbol], limit=5)
-            news_signals = self.news_strategy.generate_signal(news=articles, market_data=market_data)
-        except NewsUnavailableError:
-            news_signals = []
-        except Exception:  # noqa: BLE001
-            news_signals = []
+        await asyncio.to_thread(strategy.analyze, market_data, portfolio, news=None)
+        signal = await asyncio.to_thread(strategy.generate_signal, market_data, portfolio, news=None)
 
         decision_id = str(uuid.uuid4())
 
@@ -232,7 +288,18 @@ class AutomationEngine:
 
         self.signals_count += 1
 
-        intent = self.orchestrator.generate_trade_intent(
+        # Real news (word-sentiment) — failures degrade to empty, never fabricated.
+        news_signals = []
+        try:
+            articles = await fetch_news(symbols=[symbol], limit=5)
+            news_signals = await asyncio.to_thread(self.news_strategy.generate_signal, news=articles, market_data=market_data)
+        except NewsUnavailableError:
+            news_signals = []
+        except Exception:  # noqa: BLE001
+            news_signals = []
+
+        intent = await asyncio.to_thread(
+            self.orchestrator.generate_trade_intent,
             strategy_signal=signal,
             news_signals=news_signals,
             market_data=market_data,
@@ -254,7 +321,15 @@ class AutomationEngine:
             )
             return
 
-        decision = self.risk_engine.evaluate(intent, account, positions, self.counters, market_open=self._market_open)
+        current_price = market_data.bars[-1].close if market_data and market_data.bars else None
+        decision = self.risk_engine.evaluate(
+            intent,
+            account,
+            positions,
+            self.counters,
+            market_open=self._market_open,
+            current_price=current_price,
+        )
 
         execution_result: str | None
         if not decision.approved:

@@ -22,7 +22,7 @@ from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass as AlpacaAssetClass
 from alpaca.trading.enums import OrderSide, TimeInForce as AlpacaTimeInForce
-from alpaca.trading.requests import GetAssetsRequest, MarketOrderRequest
+from alpaca.trading.requests import GetAssetsRequest, MarketOrderRequest, LimitOrderRequest, StopOrderRequest, StopLimitOrderRequest
 
 from model.schemas.market_data import AssetClass, AssetInfo, Bar, MarketData, Timeframe
 from model.schemas.trade_signal import Action, OrderRequest
@@ -212,53 +212,17 @@ class AlpacaService:
         tf = TIMEFRAME_MAP.get(timeframe, TimeFrame.Minute)
         is_crypto = "/" in symbol
 
-        raw_bars = []
-        try:
-            if is_crypto:
-                request = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
-                bars_resp = self.crypto_data_client.get_crypto_bars(request)
-            else:
-                request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
-                bars_resp = self.stock_data_client.get_stock_bars(request)
-            raw_bars = bars_resp.data.get(symbol, []) if hasattr(bars_resp, "data") else []
-        except Exception:
-            raw_bars = []
+        if is_crypto:
+            request = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
+            bars_resp = self.crypto_data_client.get_crypto_bars(request)
+        else:
+            request = StockBarsRequest(symbol_or_symbols=symbol, timeframe=tf, limit=limit)
+            bars_resp = self.stock_data_client.get_stock_bars(request)
+        
+        raw_bars = bars_resp.data.get(symbol, []) if hasattr(bars_resp, "data") else []
 
-        # Fallback to public live bars for crypto if Alpaca data client is empty
-        if not raw_bars and is_crypto:
-            try:
-                import httpx
-                clean_sym = symbol.replace("/", "").replace("-", "").upper()
-                if not clean_sym.endswith("USDT") and not clean_sym.endswith("USD"):
-                    clean_sym += "USDT"
-                elif clean_sym.endswith("USD"):
-                    clean_sym = clean_sym[:-3] + "USDT"
-
-                interval_map = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "1D": "1d"}
-                interval = interval_map.get(timeframe, "15m")
-                with httpx.Client(timeout=4.0) as client:
-                    resp = client.get(f"https://api.binance.com/api/v3/klines?symbol={clean_sym}&interval={interval}&limit=100")
-                    if resp.status_code == 200:
-                        klines = resp.json()
-                        bars = [
-                            Bar(
-                                timestamp=datetime.fromtimestamp(k[0] / 1000.0, timezone.utc),
-                                open=float(k[1]),
-                                high=float(k[2]),
-                                low=float(k[3]),
-                                close=float(k[4]),
-                                volume=float(k[5]),
-                            )
-                            for k in klines
-                        ]
-                        return MarketData(
-                            symbol=symbol,
-                            asset_class=AssetClass.CRYPTO,
-                            timeframe=Timeframe(timeframe) if timeframe in Timeframe.__members__.values() else Timeframe.MIN_15,
-                            bars=bars,
-                        )
-            except Exception:
-                pass
+        # Alpaca data client should be the single source of truth.
+        # Fallbacks to un-rate-limited scraping are removed to prevent silent failures.
 
         if not raw_bars:
             return None
@@ -292,14 +256,54 @@ class AlpacaService:
         # Alpaca requires GTC for crypto, DAY for equities
         time_in_force = AlpacaTimeInForce.GTC if is_crypto else AlpacaTimeInForce.DAY
 
-        market_order_data = MarketOrderRequest(
+        qty = round(order.quantity, 6) if is_crypto else round(order.quantity)
+
+        if order.order_type == "MARKET":
+            order_data = MarketOrderRequest(
             symbol=order.symbol,
-            qty=round(order.quantity, 6) if is_crypto else round(order.quantity),
+                qty=qty,
             side=side,
             time_in_force=time_in_force,
             client_order_id=order.client_order_id,
         )
-        result = self.trading_client.submit_order(order_data=market_order_data)
+        elif order.order_type == "LIMIT":
+            if order.limit_price is None:
+                raise ValueError("Limit order requires a limit_price")
+            order_data = LimitOrderRequest(
+                symbol=order.symbol,
+                qty=qty,
+                side=side,
+                time_in_force=time_in_force,
+                limit_price=order.limit_price,
+                client_order_id=order.client_order_id,
+            )
+        elif order.order_type == "STOP":
+            if order.stop_price is None:
+                raise ValueError("Stop order requires a stop_price")
+            order_data = StopOrderRequest(
+                symbol=order.symbol,
+                qty=qty,
+                side=side,
+                time_in_force=time_in_force,
+                stop_price=order.stop_price,
+                client_order_id=order.client_order_id,
+            )
+        elif order.order_type == "STOP_LIMIT":
+            if order.stop_price is None or order.limit_price is None:
+                raise ValueError("Stop-Limit order requires both stop_price and limit_price")
+            order_data = StopLimitOrderRequest(
+                symbol=order.symbol,
+                qty=qty,
+                side=side,
+                time_in_force=time_in_force,
+                stop_price=order.stop_price,
+                limit_price=order.limit_price,
+                client_order_id=order.client_order_id,
+            )
+        else:
+            raise ValueError(f"Unsupported order type: {order.order_type}")
+
+        result = self.trading_client.submit_order(order_data=order_data)
         return {
             "id": str(result.id),
             "symbol": result.symbol,

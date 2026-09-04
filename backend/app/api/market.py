@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import asyncio
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -95,7 +96,8 @@ async def get_market_data(
     # Try fetching through AlpacaService first if connected
     data = None
     try:
-        data = alpaca.get_market_data(symbol, timeframe=timeframe)
+        if alpaca:
+            data = await asyncio.to_thread(alpaca.get_market_data, symbol, timeframe=timeframe)
     except Exception:
         data = None
 
