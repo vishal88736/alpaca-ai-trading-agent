@@ -65,13 +65,24 @@ class CrossExchangeArbitrageStrategy(BaseStrategy):
         bid = getattr(quote, "bid_price", getattr(quote, "bid", None)) if quote else None
         ask = getattr(quote, "ask_price", getattr(quote, "ask", None)) if quote else None
 
-        if bid is not None and ask is not None:
+        # NOTE: Alpaca provides only one execution venue. Without a second
+        # connected exchange, no true cross-venue spread exists. We compute a
+        # conservative within-venue bid/ask spread estimate and report it as the
+        # discrepancy proxy; the strategy is marked `research` and is not
+        # auto-executed until a real second venue is wired in.
+        ref_spread_estimate = 0.0
+        if bid is not None and ask is not None and ask > 0:
             mid = (bid + ask) / 2.0
-            ref_spread_estimate = abs(primary_price - mid) / (mid + 1e-8) * 100.0
+            ref_spread_estimate = abs(primary_price - mid) / mid * 100.0
+        elif len(bars) >= 2:
+            prev_close = bars[-2].close
+            if prev_close > 0:
+                ref_spread_estimate = abs(primary_price - prev_close) / prev_close * 100.0
 
         return {
             "primary_price": primary_price,
             "primary_venue": "alpaca",
+            "external_venue": None,
             "spread_pct": ref_spread_estimate,
         }
 
@@ -87,6 +98,11 @@ class CrossExchangeArbitrageStrategy(BaseStrategy):
 
         analysis = self.analyze(market_data, portfolio, news)
         if not analysis:
+            return None
+
+        # No second venue is connected: an honest cross-exchange signal is
+        # impossible. The strategy stays in `research` mode and yields no trade.
+        if not analysis.get("external_venue"):
             return None
 
         primary_price = analysis["primary_price"]

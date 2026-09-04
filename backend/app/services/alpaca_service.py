@@ -13,16 +13,18 @@ True everywhere in this scaffold.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
 from alpaca.data.historical import CryptoHistoricalDataClient, StockHistoricalDataClient
 from alpaca.data.requests import CryptoBarsRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import AssetClass as AlpacaAssetClass
 from alpaca.trading.enums import OrderSide, TimeInForce as AlpacaTimeInForce
 from alpaca.trading.requests import GetAssetsRequest, MarketOrderRequest
 
-from model.schemas.market_data import AssetInfo, Bar, MarketData
+from model.schemas.market_data import AssetClass, AssetInfo, Bar, MarketData, Timeframe
 from model.schemas.trade_signal import Action, OrderRequest
 
 
@@ -108,19 +110,62 @@ class AlpacaService:
 
     def get_orders(self, status: str = "all", limit: int = 50) -> list[dict]:
         orders = self.trading_client.get_orders()
-        return [
-            {
-                "id": o.id,
-                "symbol": o.symbol,
-                "side": o.side,
-                "qty": float(o.qty) if o.qty else None,
-                "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
-                "status": o.status,
-                "submitted_at": o.submitted_at.isoformat() if o.submitted_at else None,
-                "order_type": o.order_type,
-            }
-            for o in orders[:limit]
-        ]
+        normalized: list[dict] = []
+        for o in orders:
+            st = o.status.value if hasattr(o.status, "value") else str(o.status)
+            side = o.side.value if hasattr(o.side, "value") else str(o.side)
+            otype = o.order_type.value if hasattr(o.order_type, "value") else str(o.order_type)
+            tif = o.time_in_force.value if hasattr(o.time_in_force, "value") else str(o.time_in_force)
+            normalized.append(
+                {
+                    "id": str(o.id),
+                    "symbol": o.symbol,
+                    "side": side.lower(),
+                    "qty": float(o.qty) if o.qty else None,
+                    "filled_qty": float(o.filled_qty) if getattr(o, "filled_qty", None) is not None else None,
+                    "filled_avg_price": float(o.filled_avg_price) if getattr(o, "filled_avg_price", None) else None,
+                    "status": st,
+                    "order_type": otype.lower(),
+                    "time_in_force": tif.lower(),
+                    "submitted_at": o.submitted_at.isoformat() if getattr(o, "submitted_at", None) else None,
+                    "filled_at": o.filled_at.isoformat() if getattr(o, "filled_at", None) else None,
+                    "client_order_id": getattr(o, "client_order_id", None),
+                }
+            )
+        if status != "all":
+            wanted = status.lower()
+            normalized = [o for o in normalized if o["status"] == wanted]
+        return normalized[:limit]
+
+    def get_order_by_id(self, order_id: str) -> dict | None:
+        """Fetch a single order by its Alpaca id. Returns None if not found."""
+        try:
+            o = self.trading_client.get_order_by_id(order_id)
+        except Exception:
+            return None
+        st = o.status.value if hasattr(o.status, "value") else str(o.status)
+        side = o.side.value if hasattr(o.side, "value") else str(o.side)
+        return {
+            "id": str(o.id),
+            "symbol": o.symbol,
+            "side": side.lower(),
+            "qty": float(o.qty) if o.qty else None,
+            "filled_qty": float(o.filled_qty) if getattr(o, "filled_qty", None) is not None else None,
+            "filled_avg_price": float(o.filled_avg_price) if getattr(o, "filled_avg_price", None) else None,
+            "status": st,
+            "submitted_at": o.submitted_at.isoformat() if getattr(o, "submitted_at", None) else None,
+            "filled_at": o.filled_at.isoformat() if getattr(o, "filled_at", None) else None,
+        }
+
+    def is_market_open(self) -> bool:
+        """Whether the currently configured market is open for trading."""
+        try:
+            clock = self.trading_client.get_clock()
+            return bool(clock.is_open)
+        except Exception:
+            # When the venue cannot be queried (e.g. crypto-only paper flow),
+            # default to closed so execution is not attempted blindly.
+            return False
 
     # ------------------------------------------------------------------ #
     # Assets / market data

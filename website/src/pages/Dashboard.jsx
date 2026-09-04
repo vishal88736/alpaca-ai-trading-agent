@@ -22,6 +22,7 @@ export function Dashboard() {
   const [orders, setOrders] = useState(null);
   const [ordersError, setOrdersError] = useState(false);
   const [automationStatus, setAutomationStatus] = useState(null);
+  const [regime, setRegime] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   const [pnlSeries, setPnlSeries] = useState([]);
@@ -38,10 +39,11 @@ export function Dashboard() {
         api.getPositions(),
         api.getOrders(),
         api.automationStatus(),
+        api.getMarketRegime(),
       ]);
       if (cancelled) return;
 
-      const [accRes, posRes, ordRes, autoRes] = results;
+      const [accRes, posRes, ordRes, autoRes, regRes] = results;
 
       if (accRes.status === "fulfilled") {
         setAccount(accRes.value);
@@ -71,6 +73,10 @@ export function Dashboard() {
 
       if (autoRes.status === "fulfilled") {
         setAutomationStatus(autoRes.value);
+      }
+
+      if (regRes.status === "fulfilled") {
+        setRegime(regRes.value);
       }
 
       setLoading(false);
@@ -204,6 +210,69 @@ export function Dashboard() {
           </Link>
         </div>
       )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+        <div className="card" style={{ padding: 20 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Market Regime
+          </div>
+          {regime ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <span
+                  className={
+                    regime.regime === "BULLISH"
+                      ? "badge badge--live"
+                      : regime.regime === "BEARISH" || regime.regime === "HIGH_VOLATILITY"
+                        ? "badge badge--danger"
+                        : "badge badge--paper"
+                  }
+                >
+                  {regime.regime}
+                </span>
+                <span className="mono muted" style={{ fontSize: 12 }}>
+                  {(regime.confidence * 100).toFixed(0)}% confidence
+                </span>
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+                {(regime.observations || []).slice(0, 2).join(" · ") || "Awaiting market data."}
+              </div>
+            </>
+          ) : (
+            <span className="mono muted" style={{ fontSize: 12.5 }}>
+              {loading ? "Loading…" : "Regime unavailable."}
+            </span>
+          )}
+        </div>
+
+        <div className="card" style={{ padding: 20 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Risk & Execution Status
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+            <span
+              className={
+                automationStatus?.state === "RUNNING"
+                  ? "badge badge--live"
+                  : automationStatus?.state === "EMERGENCY_STOPPED"
+                    ? "badge badge--danger"
+                    : "badge badge--neutral"
+              }
+            >
+              {automationStatus?.state || "IDLE"}
+            </span>
+            <span className="mono muted" style={{ fontSize: 12 }}>
+              {automationStatus?.strategy ? `Strategy: ${automationStatus.strategy}` : "No active strategy"}
+            </span>
+          </div>
+          <div className="mono" style={{ fontSize: 12.5 }}>
+            Signals {automationStatus?.signals_count ?? 0} · Trades {automationStatus?.trades_count ?? 0} · Risk gate:{" "}
+            <span className={automationStatus?.state === "EMERGENCY_STOPPED" ? "negative" : "positive"}>
+              {automationStatus?.state === "EMERGENCY_STOPPED" ? "KILL SWITCH ENGAGED" : "ARMED"}
+            </span>
+          </div>
+        </div>
+      </div>
 
       <div style={{ marginBottom: 20 }}>
         <AccountSummary account={account} loading={loading} error={accountError} />

@@ -1,24 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 
-const DEFAULT_MARKET_TICKERS = [
-  { symbol: "BTC/USD", price: 80031.98, changePct: 1.45 },
-  { symbol: "ETH/USD", price: 2482.10, changePct: 0.82 },
-  { symbol: "SOL/USD", price: 108.45, changePct: 3.12 },
-  { symbol: "NVDA", price: 128.40, changePct: 2.15 },
-  { symbol: "AAPL", price: 224.30, changePct: -0.42 },
-  { symbol: "TSLA", price: 212.80, changePct: 1.88 },
-  { symbol: "SPY", price: 585.60, changePct: 0.54 },
-  { symbol: "QQQ", price: 494.20, changePct: 0.72 },
-  { symbol: "MSFT", price: 428.15, changePct: -0.18 },
-  { symbol: "AMZN", price: 186.50, changePct: 1.05 },
-];
-
 /**
  * TickerRail — Continuous infinite marquee ticker tape streaming real-time rates.
+ * No fabricated prices: until the live feed responds, only real portfolio
+ * positions are shown and the badge reads OFFLINE.
  */
 export function TickerRail({ items = [] }) {
-  const [liveMarketItems, setLiveMarketItems] = useState(DEFAULT_MARKET_TICKERS);
+  const [liveMarketItems, setLiveMarketItems] = useState([]);
+  const [feedLive, setFeedLive] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,9 +18,10 @@ export function TickerRail({ items = [] }) {
         const data = await api.getLiveTickers();
         if (!cancelled && Array.isArray(data) && data.length > 0) {
           setLiveMarketItems(data);
+          setFeedLive(true);
         }
       } catch {
-        // Fallback to existing stream on network delay
+        if (!cancelled) setFeedLive(false);
       }
     }
 
@@ -89,11 +80,20 @@ export function TickerRail({ items = [] }) {
           boxShadow: "4px 0 12px rgba(0, 0, 0, 0.4)",
         }}
       >
-        <span className="dot dot--pulse" style={{ color: "var(--buy-strong)" }} />
+        <span
+          className={feedLive ? "dot dot--pulse" : "dot"}
+          style={{ color: feedLive ? "var(--buy-strong)" : "var(--warning-strong)" }}
+        />
         <span className="eyebrow" style={{ fontSize: 9.5, color: "var(--text-primary)", fontWeight: 700 }}>
-          LIVE FEED
+          {feedLive ? "LIVE FEED" : "FEED OFFLINE"}
         </span>
       </div>
+
+      {baseList.length === 0 && (
+        <span className="mono muted" style={{ fontSize: 11.5, paddingLeft: 16 }}>
+          Market feed unavailable — connect and open positions to see live values here.
+        </span>
+      )}
 
       {/* Infinite Scrolling Track */}
       <div

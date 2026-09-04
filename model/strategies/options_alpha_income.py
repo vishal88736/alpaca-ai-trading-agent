@@ -140,8 +140,9 @@ class OptionsAlphaIncomeStrategy(BaseStrategy):
         if has_underlying and trend in ("BULLISH", "NEUTRAL"):
             est_premium = current_price * annualized_hv * 0.04
             reasoning = (
-                f"[Options Alpha: Covered Call] Sell {call_strike} Call (Delta: ~{self.config.target_delta:.2f}, "
-                f"{self.config.target_dte_days} DTE). Annualized HV: {annualized_hv*100:.1f}%. Expected Theta Income: ~${est_premium:.2f}/share."
+                f"[Options Alpha: Covered Call (equity approximation)] SELL shares to emulate a "
+                f"{self.config.target_dte_days} DTE call at ~{self.config.target_delta:.2f} delta. "
+                f"Annualized HV: {annualized_hv*100:.1f}%."
             )
             return TradeSignal(
                 symbol=market_data.symbol,
@@ -159,8 +160,9 @@ class OptionsAlphaIncomeStrategy(BaseStrategy):
         if not has_underlying:
             est_premium = current_price * annualized_hv * 0.035
             reasoning = (
-                f"[Options Alpha: Cash-Secured Put / Income] Sell {put_strike} Put (Delta: ~{self.config.target_delta:.2f}, "
-                f"{self.config.target_dte_days} DTE). Annualized HV: {annualized_hv*100:.1f}%. Target Entry Strike: ${put_strike} with ~${est_premium:.2f} yield buffer."
+                f"[Options Alpha: Cash-Secured Put (equity approximation)] BUY shares to establish the "
+                f"wheel income leg at ~{self.config.target_delta:.2f} delta. "
+                f"Annualized HV: {annualized_hv*100:.1f}%."
             )
             return TradeSignal(
                 symbol=market_data.symbol,

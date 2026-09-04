@@ -9,11 +9,14 @@ AlpacaService.submit_order().
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
 from model.schemas.agent_state import RiskConfig
 from model.schemas.trade_signal import Action, OrderRequest, RiskDecision, TradeIntent
+
+_SYMBOL_RE = re.compile(r"^[A-Za-z0-9./\-]{1,15}$")
 
 
 @dataclass
@@ -24,6 +27,7 @@ class DailyRiskCounters:
     trades_today: int = 0
     realized_pnl_today: float = 0.0
     recent_client_order_ids: set[str] = field(default_factory=set)
+    peak_portfolio_value: float = 0.0
 
 
 class RiskEngine:
@@ -52,6 +56,7 @@ class RiskEngine:
         account: dict,
         positions: dict[str, dict],
         counters: DailyRiskCounters,
+        market_open: bool | None = None,
     ) -> RiskDecision:
         passed: list[str] = []
         failed: list[str] = []
@@ -68,28 +73,32 @@ class RiskEngine:
         else:
             passed.append("asset_not_in_user_selection")
 
-        # 3. Strategy permission (caller must confirm intent.source_strategy
-        #    matches the strategy the user actually selected/started)
-        # (Enforced by the automation engine constructing `allowed_assets`
-        #  and passing only intents from the active strategy; still counted
-        #  here as an explicit, auditable check.)
+        # 3. Symbol format validation
+        if not _SYMBOL_RE.match(intent.symbol or ""):
+            failed.append("invalid_symbol")
+        else:
+            passed.append("invalid_symbol")
+
+        # 4. Strategy permission (enforced by the automation engine constructing
+        #    `allowed_assets` and passing only intents from the active strategy;
+        #    still counted here as an explicit, auditable check.)
         passed.append("strategy_permission")
 
-        # 4. Duplicate order protection
+        # 5. Duplicate order protection
         client_order_id = f"{intent.symbol}-{intent.action}-{intent.timestamp.isoformat()}"
         if client_order_id in counters.recent_client_order_ids:
             failed.append("duplicate_order")
         else:
             passed.append("duplicate_order")
 
-        # 5. Max order size (USD)
+        # 6. Max order size (USD)
         order_notional = self._estimate_notional(intent, positions)
         if order_notional is not None and order_notional > self.risk_config.max_order_size_usd:
             failed.append("max_order_size_exceeded")
         else:
             passed.append("max_order_size_exceeded")
 
-        # 6. Max position size (% of portfolio)
+        # 7. Max position size (% of portfolio)
         portfolio_value = account.get("portfolio_value", 0.0)
         if portfolio_value > 0 and order_notional is not None:
             existing = positions.get(intent.symbol, {}).get("market_value", 0.0)
@@ -101,7 +110,7 @@ class RiskEngine:
         else:
             passed.append("max_position_pct_exceeded")
 
-        # 7. Max portfolio exposure (%)
+        # 8. Max portfolio exposure (%)
         if portfolio_value > 0:
             total_exposure = sum(abs(p.get("market_value", 0.0)) for p in positions.values())
             projected_total_pct = (total_exposure + (order_notional or 0)) / portfolio_value * 100
@@ -112,14 +121,14 @@ class RiskEngine:
         else:
             passed.append("max_portfolio_exposure_exceeded")
 
-        # 8. Available buying power
+        # 9. Available buying power
         buying_power = account.get("buying_power", 0.0)
         if intent.action == Action.BUY and order_notional is not None and order_notional > buying_power:
             failed.append("insufficient_buying_power")
         else:
             passed.append("insufficient_buying_power")
 
-        # 9. Daily loss limit
+        # 10. Daily loss limit
         if portfolio_value > 0:
             daily_loss_pct = -counters.realized_pnl_today / portfolio_value * 100
             if daily_loss_pct > self.risk_config.max_daily_loss_pct:
@@ -129,11 +138,34 @@ class RiskEngine:
         else:
             passed.append("max_daily_loss_exceeded")
 
-        # 10. Max trades per day
+        # 11. Max trades per day
         if counters.trades_today >= self.risk_config.max_trades_per_day:
             failed.append("max_trades_per_day_exceeded")
         else:
             passed.append("max_trades_per_day_exceeded")
+
+        # 12. Max open positions (only when opening a NEW position)
+        if intent.symbol not in positions and len(positions) >= self.risk_config.max_open_positions:
+            failed.append("max_open_positions_exceeded")
+        else:
+            passed.append("max_open_positions_exceeded")
+
+        # 13. Portfolio drawdown from peak
+        if counters.peak_portfolio_value > 0 and portfolio_value > 0:
+            drawdown_pct = (counters.peak_portfolio_value - portfolio_value) / counters.peak_portfolio_value * 100
+            if drawdown_pct > self.risk_config.max_drawdown_pct:
+                failed.append("max_drawdown_exceeded")
+            else:
+                passed.append("max_drawdown_exceeded")
+        else:
+            passed.append("max_drawdown_exceeded")
+
+        # 14. Market-hours validation (equities only; crypto trades 24/7)
+        is_crypto = "/" in intent.symbol or "-" in intent.symbol
+        if self.risk_config.require_market_open and not is_crypto and market_open is False:
+            failed.append("market_closed")
+        else:
+            passed.append("market_closed")
 
         approved = len(failed) == 0
         return RiskDecision(
@@ -149,8 +181,9 @@ class RiskEngine:
         current_price = positions.get(intent.symbol, {}).get("current_price")
         if current_price is not None and current_price > 0:
             return float(current_price) * intent.quantity
-        if intent.limit_price and intent.limit_price > 0:
-            return float(intent.limit_price) * intent.quantity
+        limit_price = getattr(intent, "limit_price", None)
+        if limit_price and limit_price > 0:
+            return float(limit_price) * intent.quantity
         if intent.take_profit and intent.take_profit > 0:
             return (float(intent.take_profit) / 1.08) * intent.quantity
         return None
@@ -167,4 +200,6 @@ class RiskEngine:
             quantity=intent.quantity,
             order_type=intent.order_type,
             time_in_force=intent.time_in_force,
+            limit_price=intent.take_profit if intent.order_type.value == "LIMIT" else None,
+            client_order_id=f"{intent.symbol}-{intent.action}-{intent.timestamp.isoformat()}",
         )

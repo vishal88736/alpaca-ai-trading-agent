@@ -5,16 +5,17 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import account, alpaca, automation, decisions, market, news, strategies
+from app.api import account, alpaca, automation, decisions, market, news, research, strategies
 from app.core.config import settings
+from app.db.session import init_db
 from app.ws import live
 
 logging.basicConfig(level=settings.log_level)
 
 app = FastAPI(
     title="AI Trading Agent Platform (Alpaca Paper Trading)",
-    version="0.1.0",
-    description="Hackathon scaffold. Paper trading only. See /model for strategy stubs.",
+    version="0.2.0",
+    description="Autonomous AI trading agent with deterministic risk and verified paper-trading execution.",
 )
 
 app.add_middleware(
@@ -32,7 +33,13 @@ app.include_router(news.router)
 app.include_router(strategies.router)
 app.include_router(automation.router)
 app.include_router(decisions.router)
+app.include_router(research.router)
 app.include_router(live.router)
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 
 @app.get("/api/health")

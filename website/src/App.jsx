@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { SessionProvider, useSession } from "./context/SessionContext";
 import { AutomationSetupProvider } from "./context/AutomationSetupContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import { ToastProvider } from "./hooks/useToast";
 import { Landing } from "./pages/Landing";
 import { Connect } from "./pages/Connect";
@@ -9,6 +10,8 @@ import { StrategySelection } from "./pages/StrategySelection";
 import { AssetSelection } from "./pages/AssetSelection";
 import { AutomationSetup } from "./pages/AutomationSetup";
 import { DecisionLogPage } from "./pages/DecisionLogPage";
+import { Research } from "./pages/Research";
+import { Agents } from "./pages/Agents";
 
 function RequireConnection({ children }) {
   const { connected, checking } = useSession();
@@ -70,6 +73,22 @@ function AppRoutes() {
           </RequireConnection>
         }
       />
+      <Route
+        path="/research"
+        element={
+          <RequireConnection>
+            <Research />
+          </RequireConnection>
+        }
+      />
+      <Route
+        path="/agents"
+        element={
+          <RequireConnection>
+            <Agents />
+          </RequireConnection>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -77,12 +96,14 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <SessionProvider>
-      <ToastProvider>
-        <AutomationSetupProvider>
-          <AppRoutes />
-        </AutomationSetupProvider>
-      </ToastProvider>
-    </SessionProvider>
+    <ThemeProvider>
+      <SessionProvider>
+        <ToastProvider>
+          <AutomationSetupProvider>
+            <AppRoutes />
+          </AutomationSetupProvider>
+        </ToastProvider>
+      </SessionProvider>
+    </ThemeProvider>
   );
 }

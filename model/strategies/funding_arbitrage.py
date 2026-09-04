@@ -58,13 +58,15 @@ class FundingArbitrageStrategy(BaseStrategy):
             return {}
 
         spot_price = bars[-1].close
-        # Basis spread calculation: when spot trades at discount to perpetual mark
-        estimated_basis = 0.0008  # Baseline spread estimate for positive funding environment
-
+        # The basis spread requires funding-rate data from an external perpetuals
+        # venue. Alpaca does not expose funding-rate data, so we do NOT fabricate
+        # a basis number here. `funding_rate` remains None until a real source is
+        # wired in, which keeps this strategy honestly non-executable in research mode.
         return {
             "spot_price": spot_price,
-            "estimated_basis": estimated_basis,
-            "external_venue": getattr(self.config, "external_venue", "external"),
+            "funding_rate": None,
+            "estimated_basis": None,
+            "external_venue": getattr(self.config, "external_venue", None),
         }
 
     def generate_signal(
@@ -78,6 +80,10 @@ class FundingArbitrageStrategy(BaseStrategy):
 
         analysis = self.analyze(market_data, portfolio, news)
         if not analysis:
+            return None
+
+        # Without real funding-rate data there is no executable basis.
+        if analysis.get("funding_rate") is None or analysis.get("estimated_basis") is None:
             return None
 
         spot_price = analysis["spot_price"]

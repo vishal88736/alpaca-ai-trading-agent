@@ -77,7 +77,7 @@ export function Connect() {
         </div>
 
         <p style={{ fontSize: 13.5, color: "var(--text-secondary)", marginBottom: 24, lineHeight: 1.55 }}>
-          Enter your Alpaca paper API credentials to authorize trading automation. Keys are encrypted in session memory and never persisted to local storage.
+          Enter your Alpaca paper API credentials to authorize trading automation. Keys are held only in server-side session memory and never persisted to local storage.
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>

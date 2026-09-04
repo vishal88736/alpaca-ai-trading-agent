@@ -67,6 +67,19 @@ export const api = {
   // Decisions / trades
   getDecisions: () => request("/decisions"),
   getTrades: () => request("/trades"),
+
+  // Research & market intelligence (read-only; never places orders)
+  getMarketRegime: () => request("/market-regime"),
+  runDiscovery: () => request("/research/discover", { method: "POST" }),
+  runBacktest: (strategy, symbol = "AAPL", timeframe = "1D", limit = 250) =>
+    request(`/research/backtest?strategy=${encodeURIComponent(strategy)}&symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`, { method: "POST" }),
+  runResearchCycle: (strategy, symbol = "AAPL", timeframe = "1D", limit = 250) =>
+    request(`/research/run?strategy=${encodeURIComponent(strategy)}&symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`, { method: "POST" }),
+  listBacktests: (limit = 20) => request(`/research/backtests?limit=${limit}`),
+
+  // Agent activity
+  getAgentEvents: (limit = 100) => request(`/agents/events?limit=${limit}`),
+  getResearchStrategies: () => request("/research/strategies"),
 };
 
 export { ApiError };

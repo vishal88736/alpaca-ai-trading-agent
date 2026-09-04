@@ -32,6 +32,9 @@ class RiskConfig(BaseModel):
     max_order_size_usd: float = Field(default=1000.0)
     max_daily_loss_pct: float = Field(default=2.0)
     max_trades_per_day: int = Field(default=20)
+    max_open_positions: int = Field(default=10, description="Max distinct open positions")
+    max_drawdown_pct: float = Field(default=10.0, description="Max portfolio drawdown from peak before trading halts")
+    require_market_open: bool = Field(default=True, description="Block equity orders while the market is closed")
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
 
@@ -44,6 +47,7 @@ class AutomationConfig(BaseModel):
     timeframe: str = "15m"
     risk: RiskConfig = Field(default_factory=RiskConfig)
     paper_trading: bool = True
+    strategy_params: dict = Field(default_factory=dict, description="Optional per-strategy parameter overrides")
 
 
 class Decision(BaseModel):

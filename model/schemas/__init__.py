@@ -1,0 +1,71 @@
+"""Pydantic contracts shared across the pipeline."""
+
+from model.schemas.agent_state import (
+    AutomationConfig,
+    AutomationState,
+    AutomationStatus,
+    Decision,
+    RiskConfig,
+)
+from model.schemas.market_data import (
+    AssetClass,
+    AssetInfo,
+    Bar,
+    MarketData,
+    Quote,
+    Timeframe,
+)
+from model.schemas.research import (
+    AdversaryReport,
+    AgentEvent,
+    Allocation,
+    AllocationPlan,
+    BacktestMetricSet,
+    BacktestResult,
+    ExplainabilityReport,
+    MarketRegime,
+    PerformanceReport,
+    StrategyRecord,
+)
+from model.schemas.trade_signal import (
+    Action,
+    NewsSignal,
+    OrderRequest,
+    OrderType,
+    RiskDecision,
+    TimeInForce,
+    TradeIntent,
+    TradeSignal,
+)
+
+__all__ = [
+    "Action",
+    "AdversaryReport",
+    "AgentEvent",
+    "Allocation",
+    "AllocationPlan",
+    "AssetClass",
+    "AssetInfo",
+    "AutomationConfig",
+    "AutomationState",
+    "AutomationStatus",
+    "BacktestMetricSet",
+    "BacktestResult",
+    "Bar",
+    "Decision",
+    "ExplainabilityReport",
+    "MarketData",
+    "MarketRegime",
+    "NewsSignal",
+    "OrderRequest",
+    "OrderType",
+    "PerformanceReport",
+    "Quote",
+    "RiskConfig",
+    "RiskDecision",
+    "StrategyRecord",
+    "TimeInForce",
+    "Timeframe",
+    "TradeIntent",
+    "TradeSignal",
+]

@@ -18,3 +18,6 @@ dist/
 
 # Logs
 *.log
+
+# Runtime databases (created on startup; never commit)
+*.db

@@ -1,16 +1,20 @@
 import { NavLink } from "react-router-dom";
 import { useSession } from "../../context/SessionContext";
+import { useTheme } from "../../context/ThemeContext";
 
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: "📊" },
   { to: "/strategy", label: "Strategy", icon: "⚡" },
   { to: "/assets", label: "Assets", icon: "🪙" },
   { to: "/automation", label: "Automation", icon: "🤖" },
+  { to: "/research", label: "Research", icon: "🔬" },
+  { to: "/agents", label: "Agents", icon: "🧠" },
   { to: "/decisions", label: "Decision Log", icon: "📜" },
 ];
 
 export function TopNav() {
   const { connected, disconnect } = useSession();
+  const { theme, toggle } = useTheme();
 
   return (
     <header
@@ -77,6 +81,14 @@ export function TopNav() {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <button
+          className="btn btn--ghost btn--sm"
+          onClick={toggle}
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          style={{ fontSize: 14, padding: "5px 10px" }}
+        >
+          {theme === "dark" ? "☀️" : "🌙"}
+        </button>
         <span className="badge badge--paper">
           <span className="dot dot--pulse" />
           Paper Trading

@@ -81,16 +81,8 @@ async def get_live_tickers():
     except Exception:
         pass
 
-    if not results:
-        results = [
-            {"symbol": "BTC/USD", "price": 80299.0, "changePct": 2.15},
-            {"symbol": "ETH/USD", "price": 2509.2, "changePct": 1.62},
-            {"symbol": "SOL/USD", "price": 107.9, "changePct": 11.21},
-            {"symbol": "DOGE/USD", "price": 0.088, "changePct": 4.51},
-            {"symbol": "AVAX/USD", "price": 7.52, "changePct": 3.66},
-            {"symbol": "LINK/USD", "price": 11.88, "changePct": 5.39},
-        ]
-
+    # No fabricated fallback: an empty list honestly means the feed is
+    # unreachable. The UI renders an "unavailable" state instead of fake prices.
     return results
 
 
