@@ -31,9 +31,9 @@ export function AssetSelector({ selected, onChange }) {
     if (filterClass === "crypto") {
       list = list.filter((a) => a.asset_class === "crypto" || a.symbol.includes("/"));
     } else if (filterClass === "us_equity") {
-      list = list.filter((a) => (a.asset_class === "us_equity" || a.asset_class === "equity") && !a.symbol.includes("/"));
+      list = list.filter((a) => a.asset_class === "us_equity" || a.asset_class === "equity");
     } else if (filterClass === "options") {
-      list = list.filter((a) => a.asset_class === "options" || (!a.symbol.includes("/") && ["AAPL", "NVDA", "TSLA", "SPY", "QQQ", "MSFT", "AMZN"].includes(a.symbol)));
+      list = list.filter((a) => a.asset_class === "options");
     }
 
     const q = query.trim().toLowerCase();
@@ -133,7 +133,9 @@ export function AssetSelector({ selected, onChange }) {
         <div style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 4 }}>
           {filtered.length === 0 && (
             <div style={{ padding: 30, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
-              No tradable assets matched your query &ldquo;{query}&rdquo;.
+              {filterClass === "crypto" && !query
+                ? "Crypto assets unavailable (API feed unreachable or unauthorized for this account)."
+                : `No tradable assets matched your query “${query}”.`}
             </div>
           )}
           {filtered.slice(0, 100).map((a) => {

@@ -127,6 +127,14 @@ class AutomationEngine:
         is_crypto = "/" in symbol or "-" in symbol
         test_qty = 0.0003 if "BTC" in symbol.upper() else (0.01 if "ETH" in symbol.upper() else 1.0)
 
+        if self.state == AutomationState.EMERGENCY_STOPPED:
+            return {"status": "error", "message": "Automation is stopped. Kill switch engaged."}
+        if self.state != AutomationState.RUNNING:
+            return {"status": "error", "message": "Automation is not running"}
+            
+        if self.config and not is_live_executable(self.config.strategy):
+            return {"status": "error", "message": f"Strategy {self.config.strategy} is research-only and cannot be executed."}
+
         # 1. Construct TradeIntent instead of raw OrderRequest
         intent = TradeIntent(
             action=Action.BUY,

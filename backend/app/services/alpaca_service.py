@@ -172,15 +172,33 @@ class AlpacaService:
     # ------------------------------------------------------------------ #
 
     def get_assets(self, tradable_only: bool = True, asset_class: Optional[str] = None) -> list[AssetInfo]:
-        request_params = {}
+        assets = []
         if asset_class:
+            request_params = {}
             if asset_class.lower() == "crypto":
                 request_params["asset_class"] = AlpacaAssetClass.CRYPTO
             elif asset_class.lower() in ("us_equity", "equity"):
                 request_params["asset_class"] = AlpacaAssetClass.US_EQUITY
-
-        request = GetAssetsRequest(**request_params) if request_params else GetAssetsRequest()
-        assets = self.trading_client.get_all_assets(request)
+                
+            try:
+                request = GetAssetsRequest(**request_params) if request_params else GetAssetsRequest()
+                assets = self.trading_client.get_all_assets(request)
+            except Exception:
+                pass
+        else:
+            # Alpaca API defaults to US_EQUITY if not specified; we must fetch both explicitly
+            try:
+                eq_assets = self.trading_client.get_all_assets(GetAssetsRequest(asset_class=AlpacaAssetClass.US_EQUITY))
+                assets.extend(eq_assets)
+            except Exception:
+                pass
+            
+            try:
+                cr_assets = self.trading_client.get_all_assets(GetAssetsRequest(asset_class=AlpacaAssetClass.CRYPTO))
+                assets.extend(cr_assets)
+            except Exception:
+                # If crypto feed is unavailable/unauthorized, just ignore and return equities
+                pass
         
         results = []
         popular_first = {"BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD", "AVAX/USD", "LINK/USD", "AAPL", "NVDA", "TSLA", "SPY", "QQQ", "MSFT", "AMZN", "GOOGL", "META"}
